@@ -1,0 +1,15 @@
+package com.xyz.question_bank_management_system.entity;
+
+import lombok.Data;
+
+import java.time.LocalDateTime;
+
+@Data
+public class QbTagMastery {
+    private Long userId;
+    private Long tagId;
+    private Double masteryValue;
+    private Integer correctCount;
+    private Integer attemptCount;
+    private LocalDateTime updatedAt;
+}

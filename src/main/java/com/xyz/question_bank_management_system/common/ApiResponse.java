@@ -1,0 +1,50 @@
+package com.xyz.question_bank_management_system.common;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+/**
+ * 统一返回体：除登录接口外，其他接口统一用该结构。
+ */
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public class ApiResponse<T> {
+
+    private boolean success;
+    private String msg;
+    private String code;
+    private T data;
+
+    public static <T> ApiResponse<T> ok(T data) {
+        ApiResponse<T> r = new ApiResponse<>();
+        r.success = true;
+        r.msg = "ok";
+        r.data = data;
+        return r;
+    }
+
+    public static <T> ApiResponse<T> ok(String msg, T data) {
+        ApiResponse<T> r = new ApiResponse<>();
+        r.success = true;
+        r.msg = msg;
+        r.data = data;
+        return r;
+    }
+
+    public static <T> ApiResponse<T> fail(String code, String msg) {
+        ApiResponse<T> r = new ApiResponse<>();
+        r.success = false;
+        r.code = code;
+        r.msg = msg;
+        return r;
+    }
+
+    public static ApiResponse<Void> ok() {
+        ////LC待写
+        return null;
+    }
+}

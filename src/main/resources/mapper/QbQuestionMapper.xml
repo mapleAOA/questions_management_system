@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xyz.question_bank_management_system.mapper.QbQuestionMapper">
+
+    <sql id="BaseWhere">
+        q.is_deleted=0
+        <if test="q != null">
+            <if test="q.keyword != null and q.keyword != ''">
+                AND (q.title LIKE CONCAT('%', #{q.keyword}, '%')
+                     OR q.stem LIKE CONCAT('%', #{q.keyword}, '%'))
+            </if>
+            <if test="q.chapter != null and q.chapter != ''">
+                AND q.chapter = #{q.chapter}
+            </if>
+            <if test="q.difficulty != null">
+                AND q.difficulty = #{q.difficulty}
+            </if>
+            <if test="q.questionType != null">
+                AND q.question_type = #{q.questionType}
+            </if>
+            <if test="q.status != null">
+                AND q.status = #{q.status}
+            </if>
+            <if test="q.createdBy != null">
+                AND q.created_by = #{q.createdBy}
+            </if>
+            <if test="q.tagId != null">
+                AND EXISTS (
+                    SELECT 1 FROM qb_question_tag qt
+                    WHERE qt.question_id = q.id AND qt.tag_id = #{q.tagId}
+                )
+            </if>
+            <if test="q.tagIds != null and q.tagIds.size > 0">
+                AND EXISTS (
+                    SELECT 1 FROM qb_question_tag qt
+                    WHERE qt.question_id = q.id
+                      AND qt.tag_id IN
+                      <foreach collection="q.tagIds" item="tid" open="(" close=")" separator=",">
+                          #{tid}
+                      </foreach>
+                )
+            </if>
+        </if>
+    </sql>
+
+    <select id="search" resultType="com.xyz.question_bank_management_system.entity.QbQuestion">
+        SELECT q.*
+        FROM qb_question q
+        WHERE <include refid="BaseWhere"/>
+        ORDER BY q.updated_at DESC, q.id DESC
+        LIMIT #{offset}, #{size}
+    </select>
+
+    <select id="count" resultType="long">
+        SELECT COUNT(1)
+        FROM qb_question q
+        WHERE <include refid="BaseWhere"/>
+    </select>
+
+</mapper>

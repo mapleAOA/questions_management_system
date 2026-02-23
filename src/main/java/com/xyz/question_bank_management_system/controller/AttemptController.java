@@ -1,0 +1,56 @@
+package com.xyz.question_bank_management_system.controller;
+
+import com.xyz.question_bank_management_system.common.ApiResponse;
+import com.xyz.question_bank_management_system.common.PageResponse;
+import com.xyz.question_bank_management_system.entity.QbAttempt;
+import com.xyz.question_bank_management_system.service.AttemptService;
+import com.xyz.question_bank_management_system.util.SecurityContextUtil;
+import com.xyz.question_bank_management_system.vo.*;
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/attempts")
+@RequiredArgsConstructor
+@PreAuthorize("hasRole('STUDENT')")
+public class AttemptController {
+
+    private final AttemptService attemptService;
+
+    @PostMapping("/assignment/{assignmentId}/start")
+    public ApiResponse<AttemptStartVO> startAssignment(@PathVariable Long assignmentId) {
+        Long uid = SecurityContextUtil.getUserId();
+        return ApiResponse.ok(attemptService.startAssignmentAttempt(assignmentId, uid));
+    }
+
+    @GetMapping("/{attemptId}/questions")
+    public ApiResponse<List<AttemptQuestionVO>> questions(@PathVariable Long attemptId) {
+        Long uid = SecurityContextUtil.getUserId();
+        return ApiResponse.ok(attemptService.getAttemptQuestions(attemptId, uid));
+    }
+
+    @PostMapping("/{attemptId}/submit")
+    public ApiResponse<Void> submit(@PathVariable Long attemptId) {
+        Long uid = SecurityContextUtil.getUserId();
+        attemptService.submitAttempt(attemptId, uid);
+        return ApiResponse.ok();
+    }
+
+    @GetMapping("/{attemptId}/result")
+    public ApiResponse<AttemptResultVO> result(@PathVariable Long attemptId) {
+        Long uid = SecurityContextUtil.getUserId();
+        return ApiResponse.ok(attemptService.result(attemptId, uid));
+    }
+
+    @GetMapping("/my")
+    public ApiResponse<PageResponse<QbAttempt>> my(@RequestParam(defaultValue = "1") long page,
+                                                  @RequestParam(defaultValue = "20") long size) {
+        Long uid = SecurityContextUtil.getUserId();
+        //return ApiResponse.ok(attemptService.myAttempts(page, size, uid));
+        //LC待写
+        return ApiResponse.ok((PageResponse<QbAttempt>) attemptService.myAttempts(page, size, uid));
+    }
+}

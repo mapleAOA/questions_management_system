@@ -1,0 +1,20 @@
+package com.xyz.question_bank_management_system.entity;
+
+import lombok.Data;
+
+import java.time.LocalDateTime;
+
+@Data
+public class SysAuditLog {
+    private Long id;
+    private Long userId;
+    private String action;
+    private String entityType;
+    private Long entityId;
+    /** JSON as String */
+    private String beforeJson;
+    /** JSON as String */
+    private String afterJson;
+    private String ipAddr;
+    private LocalDateTime createdAt;
+}
