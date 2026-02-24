@@ -5,14 +5,12 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-public class QbPost {
+public class QbClass {
     private Long id;
-    private Long authorId;
-    private String title;
-    private String content;
-    private Long relatedQuestionId;
-    /** 1=normal,2=closed */
-    private Integer postStatus;
+    private String className;
+    private String classCode;
+    private String classDesc;
+    private Long teacherId;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private Integer isDeleted;

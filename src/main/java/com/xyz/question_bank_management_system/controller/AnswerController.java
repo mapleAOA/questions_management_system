@@ -23,4 +23,11 @@ public class AnswerController {
         attemptService.saveDraft(answerId, uid, request);
         return ApiResponse.ok();
     }
+
+    @PutMapping("/{answerId}/submit")
+    public ApiResponse<Void> submitAnswer(@PathVariable Long answerId, @RequestBody @Valid SaveAnswerDraftRequest request) {
+        Long uid = SecurityContextUtil.getUserId();
+        attemptService.submitAnswer(answerId, uid, request);
+        return ApiResponse.ok();
+    }
 }

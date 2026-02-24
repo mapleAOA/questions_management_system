@@ -1,5 +1,7 @@
 package com.xyz.question_bank_management_system.util;
 
+import com.xyz.question_bank_management_system.exception.BizException;
+import com.xyz.question_bank_management_system.exception.ErrorCode;
 import com.xyz.question_bank_management_system.security.UserPrincipal;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -38,7 +40,10 @@ public final class SecurityContextUtil {
     }
 
     public static Long getUserId() {
-        //LC待写
-        return null;
+        Long userId = currentUserId();
+        if (userId == null) {
+            throw BizException.of(ErrorCode.UNAUTHORIZED, "未登录");
+        }
+        return userId;
     }
 }

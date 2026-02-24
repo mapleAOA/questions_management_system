@@ -1,6 +1,7 @@
 package com.xyz.question_bank_management_system.mapper;
 
 import com.xyz.question_bank_management_system.entity.QbAttempt;
+import com.xyz.question_bank_management_system.vo.TeacherAssignmentScoreItemVO;
 import org.apache.ibatis.annotations.*;
 
 import java.util.List;
@@ -25,9 +26,50 @@ public interface QbAttemptMapper {
     @Update("UPDATE qb_attempt SET status=#{status}, updated_at=NOW(3) WHERE id=#{id}")
     int updateStatus(@Param("id") Long id, @Param("status") Integer status);
 
-    @Select("SELECT * FROM qb_attempt WHERE user_id=#{userId} ORDER BY created_at DESC, id DESC LIMIT #{offset}, #{size}")
-    List<QbAttempt> pageByUser(@Param("userId") Long userId, @Param("offset") long offset, @Param("size") long size);
+    @Update("UPDATE qb_attempt SET total_score = total_score + #{deltaTotal}, objective_score = objective_score + #{deltaObjective}, " +
+            "subjective_score = subjective_score + #{deltaSubjective}, updated_at=NOW(3) WHERE id=#{id}")
+    int updateScoreDelta(@Param("id") Long id,
+                         @Param("deltaTotal") Integer deltaTotal,
+                         @Param("deltaObjective") Integer deltaObjective,
+                         @Param("deltaSubjective") Integer deltaSubjective);
 
-    @Select("SELECT COUNT(1) FROM qb_attempt WHERE user_id=#{userId}")
-    long countByUser(@Param("userId") Long userId);
+    @Select({
+            "<script>",
+            "SELECT *",
+            "FROM qb_attempt",
+            "WHERE user_id = #{userId}",
+            "<if test='attemptType != null'>",
+            "  AND attempt_type = #{attemptType}",
+            "</if>",
+            "ORDER BY created_at DESC, id DESC",
+            "LIMIT #{offset}, #{size}",
+            "</script>"
+    })
+    List<QbAttempt> pageByUser(@Param("userId") Long userId,
+                               @Param("attemptType") Integer attemptType,
+                               @Param("offset") long offset,
+                               @Param("size") long size);
+
+    @Select({
+            "<script>",
+            "SELECT COUNT(1)",
+            "FROM qb_attempt",
+            "WHERE user_id = #{userId}",
+            "<if test='attemptType != null'>",
+            "  AND attempt_type = #{attemptType}",
+            "</if>",
+            "</script>"
+    })
+    long countByUser(@Param("userId") Long userId, @Param("attemptType") Integer attemptType);
+
+    @Select("SELECT COUNT(1) FROM qb_attempt WHERE assignment_id=#{assignmentId} AND status IN (2,3,4)")
+    long countByAssignmentForTeacher(@Param("assignmentId") Long assignmentId);
+
+    @Select("SELECT a.user_id AS student_id, u.display_name, a.id AS attempt_id, a.total_score, a.needs_review, a.submitted_at " +
+            "FROM qb_attempt a LEFT JOIN sys_user u ON u.id = a.user_id " +
+            "WHERE a.assignment_id=#{assignmentId} AND a.status IN (2,3,4) " +
+            "ORDER BY a.submitted_at DESC, a.id DESC LIMIT #{offset}, #{size}")
+    List<TeacherAssignmentScoreItemVO> pageByAssignmentForTeacher(@Param("assignmentId") Long assignmentId,
+                                                                  @Param("offset") long offset,
+                                                                  @Param("size") long size);
 }

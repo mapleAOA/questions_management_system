@@ -3,6 +3,7 @@ package com.xyz.question_bank_management_system.controller;
 import com.xyz.question_bank_management_system.common.ApiResponse;
 import com.xyz.question_bank_management_system.dto.LoginRequest;
 import com.xyz.question_bank_management_system.dto.LoginResponse;
+import com.xyz.question_bank_management_system.dto.RegisterRequest;
 import com.xyz.question_bank_management_system.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -15,6 +16,13 @@ import org.springframework.web.bind.annotation.*;
 public class AuthController {
 
     private final AuthService authService;
+
+    @PostMapping("/register")
+    public LoginResponse register(@RequestBody @Valid RegisterRequest request, HttpServletRequest http) {
+        String ip = http.getRemoteAddr();
+        String ua = http.getHeader("User-Agent");
+        return authService.register(request, ip, ua);
+    }
 
     @PostMapping("/login")
     public LoginResponse login(@RequestBody @Valid LoginRequest request, HttpServletRequest http) {

@@ -1,6 +1,7 @@
 package com.xyz.question_bank_management_system.controller;
 
 import com.xyz.question_bank_management_system.common.ApiResponse;
+import com.xyz.question_bank_management_system.common.PageResponse;
 import com.xyz.question_bank_management_system.entity.*;
 import com.xyz.question_bank_management_system.service.StatsService;
 import com.xyz.question_bank_management_system.util.SecurityContextUtil;
@@ -19,9 +20,15 @@ public class StatsController {
     private final StatsService statsService;
 
     @GetMapping("/wrong-questions")
-    public ApiResponse<List<QbWrongQuestion>> wrongQuestions() {
+    public ApiResponse<PageResponse<QbWrongQuestion>> wrongQuestions(
+            @RequestParam(required = false) Long tagId,
+            @RequestParam(required = false) String chapter,
+            @RequestParam(required = false) Boolean isResolved,
+            @RequestParam(defaultValue = "1") long page,
+            @RequestParam(defaultValue = "10") long size
+    ) {
         Long uid = SecurityContextUtil.getUserId();
-        return ApiResponse.ok(statsService.wrongQuestions(uid));
+        return ApiResponse.ok(statsService.wrongQuestions(uid, tagId, chapter, isResolved, page, size));
     }
 
     @PostMapping("/wrong-questions/{questionId}/resolve")
@@ -32,9 +39,9 @@ public class StatsController {
     }
 
     @GetMapping("/mastery")
-    public ApiResponse<List<QbTagMastery>> mastery() {
+    public ApiResponse<List<QbTagMastery>> mastery(@RequestParam(defaultValue = "1") Integer tagType) {
         Long uid = SecurityContextUtil.getUserId();
-        return ApiResponse.ok(statsService.mastery(uid));
+        return ApiResponse.ok(statsService.mastery(uid, tagType));
     }
 
     @GetMapping("/ability")
@@ -44,8 +51,12 @@ public class StatsController {
     }
 
     @GetMapping("/question-stats")
-    public ApiResponse<List<QbQuestionUserStat>> questionStats() {
+    public ApiResponse<PageResponse<QbQuestionUserStat>> questionStats(
+            @RequestParam(required = false) Long questionId,
+            @RequestParam(defaultValue = "1") long page,
+            @RequestParam(defaultValue = "10") long size
+    ) {
         Long uid = SecurityContextUtil.getUserId();
-        return ApiResponse.ok(statsService.questionStats(uid));
+        return ApiResponse.ok(statsService.questionStats(uid, questionId, page, size));
     }
 }

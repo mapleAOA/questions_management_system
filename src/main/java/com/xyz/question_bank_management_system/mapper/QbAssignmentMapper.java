@@ -1,8 +1,10 @@
 package com.xyz.question_bank_management_system.mapper;
 
 import com.xyz.question_bank_management_system.entity.QbAssignment;
+import com.xyz.question_bank_management_system.vo.AssignmentMyItemVO;
 import org.apache.ibatis.annotations.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Mapper
@@ -36,4 +38,75 @@ public interface QbAssignmentMapper {
 
     @Select("SELECT COUNT(1) FROM qb_assignment WHERE created_by=#{teacherId} AND is_deleted=0")
     long countByTeacher(@Param("teacherId") Long teacherId);
+
+    @Select({
+            "<script>",
+            "SELECT COUNT(1)",
+            "FROM qb_assignment a",
+            "WHERE a.is_deleted = 0",
+            "  AND a.publish_status IN (2,3)",
+            "  AND (",
+            "    (NOT EXISTS (SELECT 1 FROM qb_assignment_target t0 WHERE t0.assignment_id = a.id)",
+            "     AND NOT EXISTS (SELECT 1 FROM qb_assignment_target_class tc0 WHERE tc0.assignment_id = a.id))",
+            "    OR EXISTS (SELECT 1 FROM qb_assignment_target t1 WHERE t1.assignment_id = a.id AND t1.user_id = #{userId})",
+            "    OR EXISTS (",
+            "      SELECT 1",
+            "      FROM qb_assignment_target_class tc1",
+            "      JOIN qb_class_member cm1 ON cm1.class_id = tc1.class_id",
+            "      WHERE tc1.assignment_id = a.id AND cm1.student_id = #{userId}",
+            "    )",
+            "  )",
+            "<if test='status != null and status.equals(\"ongoing\")'>",
+            "  AND a.publish_status = 2",
+            "  AND (a.end_time IS NULL OR a.end_time &gt;= #{now})",
+            "</if>",
+            "<if test='status != null and status.equals(\"expired\")'>",
+            "  AND (a.publish_status = 3 OR (a.end_time IS NOT NULL AND a.end_time &lt; #{now}))",
+            "</if>",
+            "</script>"
+    })
+    long countForStudent(@Param("userId") Long userId,
+                         @Param("status") String status,
+                         @Param("now") LocalDateTime now);
+
+    @Select({
+            "<script>",
+            "SELECT a.id AS assignment_id,",
+            "       a.assignment_title,",
+            "       a.start_time,",
+            "       a.end_time,",
+            "       a.time_limit_min,",
+            "       a.max_attempts,",
+            "       a.publish_status,",
+            "       (SELECT COUNT(1) FROM qb_attempt atp WHERE atp.assignment_id = a.id AND atp.user_id = #{userId}) AS my_attempt_count",
+            "FROM qb_assignment a",
+            "WHERE a.is_deleted = 0",
+            "  AND a.publish_status IN (2,3)",
+            "  AND (",
+            "    (NOT EXISTS (SELECT 1 FROM qb_assignment_target t0 WHERE t0.assignment_id = a.id)",
+            "     AND NOT EXISTS (SELECT 1 FROM qb_assignment_target_class tc0 WHERE tc0.assignment_id = a.id))",
+            "    OR EXISTS (SELECT 1 FROM qb_assignment_target t1 WHERE t1.assignment_id = a.id AND t1.user_id = #{userId})",
+            "    OR EXISTS (",
+            "      SELECT 1",
+            "      FROM qb_assignment_target_class tc1",
+            "      JOIN qb_class_member cm1 ON cm1.class_id = tc1.class_id",
+            "      WHERE tc1.assignment_id = a.id AND cm1.student_id = #{userId}",
+            "    )",
+            "  )",
+            "<if test='status != null and status.equals(\"ongoing\")'>",
+            "  AND a.publish_status = 2",
+            "  AND (a.end_time IS NULL OR a.end_time &gt;= #{now})",
+            "</if>",
+            "<if test='status != null and status.equals(\"expired\")'>",
+            "  AND (a.publish_status = 3 OR (a.end_time IS NOT NULL AND a.end_time &lt; #{now}))",
+            "</if>",
+            "ORDER BY a.created_at DESC, a.id DESC",
+            "LIMIT #{offset}, #{size}",
+            "</script>"
+    })
+    List<AssignmentMyItemVO> pageForStudent(@Param("userId") Long userId,
+                                            @Param("status") String status,
+                                            @Param("now") LocalDateTime now,
+                                            @Param("offset") long offset,
+                                            @Param("size") long size);
 }

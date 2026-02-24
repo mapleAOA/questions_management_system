@@ -6,8 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * 统一返回体：除登录接口外，其他接口统一用该结构。
- */
+ * 缁熶竴杩斿洖浣擄細闄ょ櫥褰曟帴鍙ｅ锛屽叾浠栨帴鍙ｇ粺涓€鐢ㄨ缁撴瀯銆? */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -44,7 +43,10 @@ public class ApiResponse<T> {
     }
 
     public static ApiResponse<Void> ok() {
-        ////LC待写
-        return null;
+        ApiResponse<Void> r = new ApiResponse<>();
+        r.success = true;
+        r.msg = "ok";
+        r.data = null;
+        return r;
     }
 }

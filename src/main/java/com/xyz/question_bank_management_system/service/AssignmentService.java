@@ -4,6 +4,7 @@ import com.xyz.question_bank_management_system.common.PageResponse;
 import com.xyz.question_bank_management_system.dto.AssignmentTargetsRequest;
 import com.xyz.question_bank_management_system.dto.AssignmentUpsertRequest;
 import com.xyz.question_bank_management_system.entity.QbAssignment;
+import com.xyz.question_bank_management_system.vo.AssignmentMyItemVO;
 
 public interface AssignmentService {
 
@@ -25,4 +26,8 @@ public interface AssignmentService {
     PageResponse<QbAssignment> pageMineOrAll(long page, long size, Long teacherId, boolean isAdmin);
 
     QbAssignment detail(Long assignmentId);
+
+    QbAssignment detailForStudent(Long assignmentId, Long userId);
+
+    PageResponse<AssignmentMyItemVO> pageForStudent(String status, long page, long size, Long userId);
 }

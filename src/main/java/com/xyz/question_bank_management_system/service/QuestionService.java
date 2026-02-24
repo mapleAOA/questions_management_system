@@ -1,10 +1,14 @@
 package com.xyz.question_bank_management_system.service;
 
 import com.xyz.question_bank_management_system.common.PageResponse;
+import com.xyz.question_bank_management_system.dto.QuestionCaseUpsertRequest;
 import com.xyz.question_bank_management_system.dto.QuestionSearchQuery;
 import com.xyz.question_bank_management_system.dto.QuestionUpsertRequest;
+import com.xyz.question_bank_management_system.entity.QbQuestionCase;
 import com.xyz.question_bank_management_system.vo.QuestionDetailVO;
 import com.xyz.question_bank_management_system.vo.QuestionListItemVO;
+
+import java.util.List;
 
 public interface QuestionService {
 
@@ -21,4 +25,10 @@ public interface QuestionService {
     void publish(Long questionId);
 
     Long generateAnalysisByLlm(Long questionId);
+
+    List<QbQuestionCase> listCases(Long questionId);
+
+    Long upsertCase(Long questionId, QuestionCaseUpsertRequest request);
+
+    void deleteCase(Long caseId);
 }

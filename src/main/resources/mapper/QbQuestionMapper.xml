@@ -57,4 +57,36 @@
         WHERE <include refid="BaseWhere"/>
     </select>
 
+    <select id="searchForPractice" resultType="com.xyz.question_bank_management_system.entity.QbQuestion">
+        SELECT q.*
+        FROM qb_question q
+        WHERE q.is_deleted = 0
+          AND q.status = 2
+          <if test="questionTypes != null and questionTypes.size > 0">
+              AND q.question_type IN
+              <foreach collection="questionTypes" item="t" open="(" close=")" separator=",">
+                  #{t}
+              </foreach>
+          </if>
+          <if test="chapters != null and chapters.size > 0">
+              AND q.chapter IN
+              <foreach collection="chapters" item="ch" open="(" close=")" separator=",">
+                  #{ch}
+              </foreach>
+          </if>
+          <if test="tagIds != null and tagIds.size > 0">
+              AND EXISTS (
+                  SELECT 1
+                  FROM qb_question_tag qt
+                  WHERE qt.question_id = q.id
+                    AND qt.tag_id IN
+                    <foreach collection="tagIds" item="tid" open="(" close=")" separator=",">
+                        #{tid}
+                    </foreach>
+              )
+          </if>
+        ORDER BY q.updated_at DESC, q.id DESC
+        LIMIT #{limit}
+    </select>
+
 </mapper>

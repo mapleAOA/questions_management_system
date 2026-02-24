@@ -6,6 +6,8 @@ import com.xyz.question_bank_management_system.common.PageResponse;
 
 public interface AuthService {
 
+    LoginResponse register(RegisterRequest request, String ip, String userAgent);
+
     LoginResponse login(LoginRequest request, String ip, String userAgent);
 
     LoginResponse.UserDTO me();

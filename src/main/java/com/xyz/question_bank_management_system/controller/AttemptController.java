@@ -2,10 +2,12 @@ package com.xyz.question_bank_management_system.controller;
 
 import com.xyz.question_bank_management_system.common.ApiResponse;
 import com.xyz.question_bank_management_system.common.PageResponse;
+import com.xyz.question_bank_management_system.dto.PracticeStartRequest;
 import com.xyz.question_bank_management_system.entity.QbAttempt;
 import com.xyz.question_bank_management_system.service.AttemptService;
 import com.xyz.question_bank_management_system.util.SecurityContextUtil;
 import com.xyz.question_bank_management_system.vo.*;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -24,6 +26,12 @@ public class AttemptController {
     public ApiResponse<AttemptStartVO> startAssignment(@PathVariable Long assignmentId) {
         Long uid = SecurityContextUtil.getUserId();
         return ApiResponse.ok(attemptService.startAssignmentAttempt(assignmentId, uid));
+    }
+
+    @PostMapping("/practice/start")
+    public ApiResponse<AttemptStartVO> startPractice(@RequestBody @Valid PracticeStartRequest request) {
+        Long uid = SecurityContextUtil.getUserId();
+        return ApiResponse.ok(attemptService.startPracticeAttempt(request, uid));
     }
 
     @GetMapping("/{attemptId}/questions")
@@ -46,11 +54,10 @@ public class AttemptController {
     }
 
     @GetMapping("/my")
-    public ApiResponse<PageResponse<QbAttempt>> my(@RequestParam(defaultValue = "1") long page,
+    public ApiResponse<PageResponse<QbAttempt>> my(@RequestParam(required = false) Integer attemptType,
+                                                    @RequestParam(defaultValue = "1") long page,
                                                   @RequestParam(defaultValue = "20") long size) {
         Long uid = SecurityContextUtil.getUserId();
-        //return ApiResponse.ok(attemptService.myAttempts(page, size, uid));
-        //LC待写
-        return ApiResponse.ok((PageResponse<QbAttempt>) attemptService.myAttempts(page, size, uid));
+        return ApiResponse.ok(attemptService.myAttempts(attemptType, page, size, uid));
     }
 }

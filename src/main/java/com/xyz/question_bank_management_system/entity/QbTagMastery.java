@@ -8,6 +8,7 @@ import java.time.LocalDateTime;
 public class QbTagMastery {
     private Long userId;
     private Long tagId;
+    private String tagName;
     private Double masteryValue;
     private Integer correctCount;
     private Integer attemptCount;

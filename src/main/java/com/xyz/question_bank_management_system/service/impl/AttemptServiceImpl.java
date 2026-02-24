@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xyz.question_bank_management_system.common.PageResponse;
 import com.xyz.question_bank_management_system.common.enums.*;
+import com.xyz.question_bank_management_system.dto.PracticeStartRequest;
 import com.xyz.question_bank_management_system.dto.SaveAnswerDraftRequest;
 import com.xyz.question_bank_management_system.entity.*;
 import com.xyz.question_bank_management_system.exception.BizException;
@@ -13,6 +14,7 @@ import com.xyz.question_bank_management_system.mapper.*;
 import com.xyz.question_bank_management_system.service.AttemptService;
 import com.xyz.question_bank_management_system.service.LlmService;
 import com.xyz.question_bank_management_system.util.HashUtil;
+import com.xyz.question_bank_management_system.util.PageParamUtil;
 import com.xyz.question_bank_management_system.vo.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -35,6 +37,10 @@ public class AttemptServiceImpl implements AttemptService {
     private final QbGradingRecordMapper gradingRecordMapper;
 
     private final QbPaperQuestionMapper paperQuestionMapper;
+    private final QbQuestionMapper questionMapper;
+    private final QbQuestionOptionMapper optionMapper;
+    private final QbQuestionCaseMapper caseMapper;
+    private final QbQuestionTagMapper questionTagMapper;
 
     private final QbQuestionUserStatMapper questionUserStatMapper;
     private final QbWrongQuestionMapper wrongQuestionMapper;
@@ -133,26 +139,74 @@ public class AttemptServiceImpl implements AttemptService {
             order++;
         }
         attemptQuestionMapper.batchInsert(aqList);
-
-        // 插入 answer（先查回 attempt_question id）
-        List<QbAttemptQuestion> inserted = attemptQuestionMapper.selectByAttemptId(attempt.getId());
-        for (QbAttemptQuestion aq : inserted) {
-            QbAnswer ans = new QbAnswer();
-            ans.setAttemptId(attempt.getId());
-            ans.setAttemptQuestionId(aq.getId());
-            ans.setQuestionId(aq.getQuestionId());
-            ans.setUserId(userId);
-            ans.setAnswerContent(null);
-            Integer answerFormat = extractAnswerFormat(aq.getSnapshotJson());
-            ans.setAnswerFormat(answerFormat == null ? 1 : answerFormat);
-            ans.setAnswerStatus(AnswerStatusEnum.DRAFT.getCode());
-            ans.setAutoScore(0);
-            ans.setFinalScore(0);
-            ans.setIsCorrect(0);
-            answerMapper.insert(ans);
-        }
+        initAnswersForAttempt(attempt.getId(), userId);
 
         return new AttemptStartVO(attempt.getId(), attemptNo, assignmentId, a.getPaperId(), attempt.getStatus());
+    }
+
+    @Override
+    @Transactional
+    public AttemptStartVO startPracticeAttempt(PracticeStartRequest request, Long userId) {
+        normalizePracticeMode(request.getMode());
+        int totalScore = normalizePracticeTotalScore(request.getTotalScore());
+
+        List<Long> tagIds = normalizeLongList(request.getScope() == null ? null : request.getScope().getTagIds());
+        List<String> chapters = normalizeStringList(request.getScope() == null ? null : request.getScope().getChapters());
+        List<Integer> questionTypes = normalizeQuestionTypes(request.getScope() == null ? null : request.getScope().getQuestionTypes());
+
+        int questionCount = Math.max(1, Math.min(50, totalScore / 10));
+        long candidateLimit = Math.max(questionCount * 5L, 50L);
+        List<QbQuestion> candidates = questionMapper.searchForPractice(tagIds, chapters, questionTypes, candidateLimit);
+        if (candidates == null || candidates.isEmpty()) {
+            throw BizException.of(ErrorCode.BIZ_ERROR, "no published questions match current scope");
+        }
+
+        Collections.shuffle(candidates);
+        int picked = Math.min(questionCount, candidates.size());
+        List<QbQuestion> selected = candidates.subList(0, picked);
+        int[] scores = splitScores(totalScore, picked);
+
+        long usedAttempts = attemptMapper.countByUser(userId, AttemptTypeEnum.PRACTICE.getCode());
+        int attemptNo = (int) usedAttempts + 1;
+        QbAttempt attempt = new QbAttempt();
+        attempt.setAssignmentId(null);
+        attempt.setPaperId(null);
+        attempt.setUserId(userId);
+        attempt.setAttemptType(AttemptTypeEnum.PRACTICE.getCode());
+        attempt.setAttemptNo(attemptNo);
+        attempt.setStatus(AttemptStatusEnum.IN_PROGRESS.getCode());
+        attemptMapper.insert(attempt);
+
+        List<QbAttemptQuestion> aqList = new ArrayList<>();
+        int orderNo = 1;
+        for (QbQuestion q : selected) {
+            String snapshotJson = buildQuestionSnapshot(q.getId());
+            String snapshotHash = HashUtil.sha256(snapshotJson);
+            List<Long> qTagIds = questionTagMapper.selectTagIdsByQuestionId(q.getId());
+            String tagIdsJson;
+            try {
+                tagIdsJson = objectMapper.writeValueAsString(qTagIds);
+            } catch (Exception e) {
+                tagIdsJson = "[]";
+            }
+
+            QbAttemptQuestion aq = new QbAttemptQuestion();
+            aq.setAttemptId(attempt.getId());
+            aq.setQuestionId(q.getId());
+            aq.setOrderNo(orderNo);
+            aq.setScore(scores[orderNo - 1]);
+            aq.setSnapshotJson(snapshotJson);
+            aq.setSnapshotHash(snapshotHash);
+            aq.setQuestionType(q.getQuestionType());
+            aq.setDifficulty(q.getDifficulty());
+            aq.setTagIdsJson(tagIdsJson);
+            aqList.add(aq);
+            orderNo++;
+        }
+        attemptQuestionMapper.batchInsert(aqList);
+        initAnswersForAttempt(attempt.getId(), userId);
+
+        return new AttemptStartVO(attempt.getId(), attemptNo, null, null, attempt.getStatus());
     }
 
     @Override
@@ -202,6 +256,28 @@ public class AttemptServiceImpl implements AttemptService {
             throw BizException.of(ErrorCode.FORBIDDEN, "当前状态不允许保存草稿");
         }
         answerMapper.updateDraft(answerId, request.getAnswerContent());
+    }
+
+    @Override
+    public void submitAnswer(Long answerId, Long userId, SaveAnswerDraftRequest request) {
+        QbAnswer ans = answerMapper.selectById(answerId);
+        if (ans == null) {
+            throw BizException.of(ErrorCode.NOT_FOUND, "answer not found");
+        }
+        if (!Objects.equals(ans.getUserId(), userId)) {
+            throw BizException.of(ErrorCode.FORBIDDEN, "no permission to submit this answer");
+        }
+        QbAttempt attempt = attemptMapper.selectById(ans.getAttemptId());
+        if (attempt == null) {
+            throw BizException.of(ErrorCode.NOT_FOUND, "attempt not found");
+        }
+        if (!Objects.equals(attempt.getUserId(), userId)) {
+            throw BizException.of(ErrorCode.FORBIDDEN, "no permission to access this attempt");
+        }
+        if (attempt.getStatus() == null || attempt.getStatus() != AttemptStatusEnum.IN_PROGRESS.getCode()) {
+            throw BizException.of(ErrorCode.FORBIDDEN, "attempt is not in progress");
+        }
+        answerMapper.submitOne(answerId, request.getAnswerContent(), LocalDateTime.now());
     }
 
     @Override
@@ -373,14 +449,147 @@ public class AttemptServiceImpl implements AttemptService {
     }
 
     @Override
-    public PageResponse<QbAttempt> myAttempts(long page, long size, Long userId) {
-        long offset = (page - 1) * size;
-        List<QbAttempt> rows = attemptMapper.pageByUser(userId, offset, size);
-        long total = attemptMapper.countByUser(userId);
-        return PageResponse.of(page, size, total, rows);
+    public PageResponse<QbAttempt> myAttempts(Integer attemptType, long page, long size, Long userId) {
+        Integer safeAttemptType = null;
+        if (attemptType != null) {
+            if (attemptType != AttemptTypeEnum.ASSIGNMENT.getCode()
+                    && attemptType != AttemptTypeEnum.PRACTICE.getCode()) {
+                throw BizException.of(ErrorCode.PARAM_ERROR, "attemptType must be 1 or 2");
+            }
+            safeAttemptType = attemptType;
+        }
+        long safePage = PageParamUtil.normalizePage(page);
+        long safeSize = PageParamUtil.normalizeSize(size);
+        long offset = PageParamUtil.offset(safePage, safeSize);
+
+        List<QbAttempt> rows = attemptMapper.pageByUser(userId, safeAttemptType, offset, safeSize);
+        long total = attemptMapper.countByUser(userId, safeAttemptType);
+        return PageResponse.of(safePage, safeSize, total, rows);
     }
 
     // ================= helpers =================
+
+    private void initAnswersForAttempt(Long attemptId, Long userId) {
+        List<QbAttemptQuestion> inserted = attemptQuestionMapper.selectByAttemptId(attemptId);
+        for (QbAttemptQuestion aq : inserted) {
+            QbAnswer ans = new QbAnswer();
+            ans.setAttemptId(attemptId);
+            ans.setAttemptQuestionId(aq.getId());
+            ans.setQuestionId(aq.getQuestionId());
+            ans.setUserId(userId);
+            ans.setAnswerContent(null);
+            Integer answerFormat = extractAnswerFormat(aq.getSnapshotJson());
+            ans.setAnswerFormat(answerFormat == null ? 1 : answerFormat);
+            ans.setAnswerStatus(AnswerStatusEnum.DRAFT.getCode());
+            ans.setAutoScore(0);
+            ans.setFinalScore(0);
+            ans.setIsCorrect(0);
+            answerMapper.insert(ans);
+        }
+    }
+
+    private String buildQuestionSnapshot(Long questionId) {
+        try {
+            QbQuestion q = questionMapper.selectById(questionId);
+            if (q == null) {
+                throw BizException.of(ErrorCode.NOT_FOUND, "question not found: " + questionId);
+            }
+
+            List<QbQuestionOption> options = optionMapper.selectByQuestionId(questionId);
+            List<QbQuestionCase> cases = caseMapper.selectByQuestionId(questionId);
+            List<Long> tagIds = questionTagMapper.selectTagIdsByQuestionId(questionId);
+
+            Map<String, Object> snapshot = new LinkedHashMap<>();
+            snapshot.put("id", q.getId());
+            snapshot.put("title", q.getTitle());
+            snapshot.put("questionType", q.getQuestionType());
+            snapshot.put("difficulty", q.getDifficulty());
+            snapshot.put("chapter", q.getChapter());
+            snapshot.put("stem", q.getStem());
+            snapshot.put("standardAnswer", q.getStandardAnswer());
+            snapshot.put("answerFormat", q.getAnswerFormat());
+            snapshot.put("analysisText", q.getAnalysisText());
+            snapshot.put("analysisSource", q.getAnalysisSource());
+            snapshot.put("tagIds", tagIds);
+            snapshot.put("options", options);
+            snapshot.put("cases", cases);
+            return objectMapper.writeValueAsString(snapshot);
+        } catch (BizException e) {
+            throw e;
+        } catch (Exception e) {
+            throw BizException.of(ErrorCode.BIZ_ERROR, "failed to build question snapshot: " + e.getMessage());
+        }
+    }
+
+    private String normalizePracticeMode(String mode) {
+        if (mode == null || mode.isBlank()) {
+            throw BizException.of(ErrorCode.PARAM_ERROR, "mode cannot be blank");
+        }
+        String normalized = mode.trim().toLowerCase();
+        if ("random".equals(normalized) || "adaptive".equals(normalized)) {
+            return normalized;
+        }
+        throw BizException.of(ErrorCode.PARAM_ERROR, "mode must be random or adaptive");
+    }
+
+    private int normalizePracticeTotalScore(Integer totalScore) {
+        if (totalScore == null) {
+            return 100;
+        }
+        if (totalScore <= 0) {
+            throw BizException.of(ErrorCode.PARAM_ERROR, "totalScore must be greater than 0");
+        }
+        return Math.min(totalScore, 1000);
+    }
+
+    private List<Long> normalizeLongList(List<Long> values) {
+        if (values == null || values.isEmpty()) {
+            return null;
+        }
+        return values.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+    }
+
+    private List<String> normalizeStringList(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return null;
+        }
+        List<String> normalized = values.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .distinct()
+                .toList();
+        return normalized.isEmpty() ? null : normalized;
+    }
+
+    private List<Integer> normalizeQuestionTypes(List<Integer> questionTypes) {
+        if (questionTypes == null || questionTypes.isEmpty()) {
+            return null;
+        }
+        List<Integer> normalized = questionTypes.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        for (Integer t : normalized) {
+            if (t < 1 || t > 7) {
+                throw BizException.of(ErrorCode.PARAM_ERROR, "questionType out of range: " + t);
+            }
+        }
+        return normalized;
+    }
+
+    private int[] splitScores(int totalScore, int questionCount) {
+        int[] scores = new int[questionCount];
+        int base = totalScore / questionCount;
+        int rem = totalScore % questionCount;
+        for (int i = 0; i < questionCount; i++) {
+            scores[i] = base + (i < rem ? 1 : 0);
+        }
+        return scores;
+    }
 
     private boolean isObjective(Integer questionType) {
         if (questionType == null) return false;

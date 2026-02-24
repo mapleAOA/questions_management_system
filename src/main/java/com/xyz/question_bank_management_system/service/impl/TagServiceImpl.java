@@ -12,7 +12,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -43,6 +48,7 @@ public class TagServiceImpl implements TagService {
             n.setSortOrder(t.getSortOrder());
             map.put(n.getId(), n);
         }
+
         List<TagTreeNode> roots = new ArrayList<>();
         for (TagTreeNode n : map.values()) {
             Long pid = n.getParentId();
@@ -52,7 +58,7 @@ public class TagServiceImpl implements TagService {
                 map.get(pid).getChildren().add(n);
             }
         }
-        // children 排序
+
         Comparator<TagTreeNode> cmp = Comparator
                 .comparing((TagTreeNode x) -> x.getSortOrder() == null ? 0 : x.getSortOrder())
                 .thenComparing(TagTreeNode::getId);
@@ -64,7 +70,9 @@ public class TagServiceImpl implements TagService {
     }
 
     private void sortRecursively(TagTreeNode node, Comparator<TagTreeNode> cmp) {
-        if (node.getChildren() == null || node.getChildren().isEmpty()) return;
+        if (node.getChildren() == null || node.getChildren().isEmpty()) {
+            return;
+        }
         node.getChildren().sort(cmp);
         for (TagTreeNode c : node.getChildren()) {
             sortRecursively(c, cmp);
@@ -77,11 +85,17 @@ public class TagServiceImpl implements TagService {
         if (tagMapper.countByName(request.getTagName()) > 0) {
             throw BizException.of(ErrorCode.CONFLICT, "标签名已存在");
         }
+
+        Long parentId = normalizeParentId(request.getParentId());
+        if (parentId > 0) {
+            ensureParentExists(parentId);
+        }
+
         QbTag t = new QbTag();
         t.setTagName(request.getTagName());
         t.setTagCode(request.getTagCode());
-        t.setParentId(request.getParentId() == null ? 0L : request.getParentId());
-        t.setTagLevel(request.getTagLevel());
+        t.setParentId(parentId);
+        t.setTagLevel(resolveTagLevel(parentId, request.getTagLevel(), 1));
         t.setTagType(request.getTagType());
         t.setSortOrder(request.getSortOrder() == null ? 0 : request.getSortOrder());
         tagMapper.insert(t);
@@ -94,10 +108,19 @@ public class TagServiceImpl implements TagService {
         if (t == null) {
             throw BizException.of(ErrorCode.NOT_FOUND, "标签不存在");
         }
+
+        Long parentId = normalizeParentId(request.getParentId());
+        if (Objects.equals(parentId, id)) {
+            throw BizException.of(ErrorCode.PARAM_ERROR, "parentId不能等于自身id");
+        }
+        if (parentId > 0) {
+            ensureParentExists(parentId);
+        }
+
         t.setTagName(request.getTagName());
         t.setTagCode(request.getTagCode());
-        t.setParentId(request.getParentId() == null ? 0L : request.getParentId());
-        t.setTagLevel(request.getTagLevel());
+        t.setParentId(parentId);
+        t.setTagLevel(resolveTagLevel(parentId, request.getTagLevel(), t.getTagLevel() == null ? 1 : t.getTagLevel()));
         t.setTagType(request.getTagType());
         t.setSortOrder(request.getSortOrder() == null ? 0 : request.getSortOrder());
         tagMapper.update(t);
@@ -110,5 +133,31 @@ public class TagServiceImpl implements TagService {
             throw BizException.of(ErrorCode.NOT_FOUND, "标签不存在");
         }
         tagMapper.softDelete(id);
+    }
+
+    private Long normalizeParentId(Long parentId) {
+        return parentId == null ? 0L : parentId;
+    }
+
+    private void ensureParentExists(Long parentId) {
+        QbTag parent = tagMapper.selectById(parentId);
+        if (parent == null) {
+            throw BizException.of(ErrorCode.NOT_FOUND, "父标签不存在");
+        }
+    }
+
+    private int resolveTagLevel(Long parentId, Integer requestedTagLevel, int fallback) {
+        if (requestedTagLevel != null && requestedTagLevel > 0) {
+            return requestedTagLevel;
+        }
+        if (parentId == null || parentId == 0L) {
+            return 1;
+        }
+        QbTag parent = tagMapper.selectById(parentId);
+        if (parent == null) {
+            throw BizException.of(ErrorCode.NOT_FOUND, "父标签不存在");
+        }
+        int parentLevel = parent.getTagLevel() == null ? fallback : parent.getTagLevel();
+        return Math.max(1, parentLevel + 1);
     }
 }

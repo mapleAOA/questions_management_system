@@ -1,6 +1,7 @@
 package com.xyz.question_bank_management_system.mapper;
 
 import com.xyz.question_bank_management_system.entity.QbLlmCall;
+import com.xyz.question_bank_management_system.vo.LlmCallListItemVO;
 import org.apache.ibatis.annotations.*;
 
 import java.util.List;
@@ -21,4 +22,39 @@ public interface QbLlmCallMapper {
 
     @Select("SELECT * FROM qb_llm_call WHERE biz_type=#{bizType} AND biz_id=#{bizId} ORDER BY created_at DESC")
     List<QbLlmCall> selectByBiz(@Param("bizType") Integer bizType, @Param("bizId") Long bizId);
+
+    @Select({
+            "<script>",
+            "SELECT COUNT(1)",
+            "FROM qb_llm_call",
+            "WHERE 1=1",
+            "<if test='bizType != null'>",
+            "  AND biz_type = #{bizType}",
+            "</if>",
+            "<if test='bizId != null'>",
+            "  AND biz_id = #{bizId}",
+            "</if>",
+            "</script>"
+    })
+    long countByFilter(@Param("bizType") Integer bizType, @Param("bizId") Long bizId);
+
+    @Select({
+            "<script>",
+            "SELECT id AS llm_call_id, biz_type, biz_id, model_name, call_status, latency_ms, created_at",
+            "FROM qb_llm_call",
+            "WHERE 1=1",
+            "<if test='bizType != null'>",
+            "  AND biz_type = #{bizType}",
+            "</if>",
+            "<if test='bizId != null'>",
+            "  AND biz_id = #{bizId}",
+            "</if>",
+            "ORDER BY created_at DESC, id DESC",
+            "LIMIT #{offset}, #{size}",
+            "</script>"
+    })
+    List<LlmCallListItemVO> pageByFilter(@Param("bizType") Integer bizType,
+                                         @Param("bizId") Long bizId,
+                                         @Param("offset") long offset,
+                                         @Param("size") long size);
 }

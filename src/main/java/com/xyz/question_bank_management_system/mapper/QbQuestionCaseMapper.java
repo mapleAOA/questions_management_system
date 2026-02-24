@@ -8,8 +8,14 @@ import java.util.List;
 @Mapper
 public interface QbQuestionCaseMapper {
 
+    @Select("SELECT * FROM qb_question_case WHERE id=#{id}")
+    QbQuestionCase selectById(@Param("id") Long id);
+
     @Select("SELECT * FROM qb_question_case WHERE question_id=#{questionId} ORDER BY case_no ASC")
     List<QbQuestionCase> selectByQuestionId(@Param("questionId") Long questionId);
+
+    @Select("SELECT * FROM qb_question_case WHERE question_id=#{questionId} AND case_no=#{caseNo} LIMIT 1")
+    QbQuestionCase selectByQuestionAndCaseNo(@Param("questionId") Long questionId, @Param("caseNo") Integer caseNo);
 
     @Insert("INSERT INTO qb_question_case(question_id, case_no, input_data, expected_output, case_score, is_sample) " +
             "VALUES(#{questionId}, #{caseNo}, #{inputData}, #{expectedOutput}, #{caseScore}, #{isSample})")

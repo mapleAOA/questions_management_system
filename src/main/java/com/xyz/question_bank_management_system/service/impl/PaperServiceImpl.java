@@ -11,6 +11,7 @@ import com.xyz.question_bank_management_system.exception.ErrorCode;
 import com.xyz.question_bank_management_system.mapper.*;
 import com.xyz.question_bank_management_system.service.PaperService;
 import com.xyz.question_bank_management_system.util.HashUtil;
+import com.xyz.question_bank_management_system.util.PageParamUtil;
 import com.xyz.question_bank_management_system.vo.PaperDetailVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -72,10 +73,13 @@ public class PaperServiceImpl implements PaperService {
 
     @Override
     public PageResponse<QbPaper> page(long page, long size) {
-        long offset = (page - 1) * size;
-        List<QbPaper> rows = paperMapper.page(offset, size);
+        long safePage = PageParamUtil.normalizePage(page);
+        long safeSize = PageParamUtil.normalizeSize(size);
+        long offset = PageParamUtil.offset(safePage, safeSize);
+
+        List<QbPaper> rows = paperMapper.page(offset, safeSize);
         long total = paperMapper.countAll();
-        return PageResponse.of(page, size, total, rows);
+        return PageResponse.of(safePage, safeSize, total, rows);
     }
 
     @Override

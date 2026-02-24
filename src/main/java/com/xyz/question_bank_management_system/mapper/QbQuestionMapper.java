@@ -30,4 +30,9 @@ public interface QbQuestionMapper {
     List<QbQuestion> search(@Param("q") QuestionSearchQuery q, @Param("offset") long offset, @Param("size") long size);
 
     long count(@Param("q") QuestionSearchQuery q);
+
+    List<QbQuestion> searchForPractice(@Param("tagIds") List<Long> tagIds,
+                                       @Param("chapters") List<String> chapters,
+                                       @Param("questionTypes") List<Integer> questionTypes,
+                                       @Param("limit") long limit);
 }

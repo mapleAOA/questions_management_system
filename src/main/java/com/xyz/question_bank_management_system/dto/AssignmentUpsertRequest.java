@@ -14,6 +14,7 @@ public class AssignmentUpsertRequest {
     private String assignmentTitle;
     private String assignmentDesc;
     private LocalDateTime startTime;
+    @NotNull(message = "endTime不能为空")
     private LocalDateTime endTime;
     private Integer timeLimitMin = 0;
     private Integer maxAttempts = 1;

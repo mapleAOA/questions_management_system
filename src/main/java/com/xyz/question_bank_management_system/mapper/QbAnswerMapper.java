@@ -1,6 +1,7 @@
 package com.xyz.question_bank_management_system.mapper;
 
 import com.xyz.question_bank_management_system.entity.QbAnswer;
+import com.xyz.question_bank_management_system.vo.TeacherReviewAnswerItemVO;
 import org.apache.ibatis.annotations.*;
 
 import java.time.LocalDateTime;
@@ -26,10 +27,68 @@ public interface QbAnswerMapper {
     @Update("UPDATE qb_answer SET answer_status=2, answered_at=#{answeredAt} WHERE attempt_id=#{attemptId}")
     int submitAllByAttempt(@Param("attemptId") Long attemptId, @Param("answeredAt") LocalDateTime answeredAt);
 
+    @Update("UPDATE qb_answer SET answer_content=#{answerContent}, answer_status=2, answered_at=#{answeredAt} WHERE id=#{id}")
+    int submitOne(@Param("id") Long id,
+                  @Param("answerContent") String answerContent,
+                  @Param("answeredAt") LocalDateTime answeredAt);
+
     @Update("UPDATE qb_answer SET auto_score=#{autoScore}, final_score=#{finalScore}, is_correct=#{isCorrect}, graded_at=#{gradedAt} WHERE id=#{id}")
     int updateScoring(@Param("id") Long id,
                       @Param("autoScore") Integer autoScore,
                       @Param("finalScore") Integer finalScore,
                       @Param("isCorrect") Integer isCorrect,
                       @Param("gradedAt") LocalDateTime gradedAt);
+
+    @Select({
+            "<script>",
+            "SELECT COUNT(1)",
+            "FROM qb_answer a",
+            "JOIN qb_attempt atp ON atp.id = a.attempt_id",
+            "LEFT JOIN qb_grading_record gr ON gr.id = (",
+            "  SELECT g2.id FROM qb_grading_record g2",
+            "  WHERE g2.answer_id = a.id ORDER BY g2.id DESC LIMIT 1",
+            ")",
+            "WHERE 1=1",
+            "<if test='assignmentId != null'>",
+            "  AND atp.assignment_id = #{assignmentId}",
+            "</if>",
+            "<if test='needsReview != null'>",
+            "  AND COALESCE(gr.needs_review, 0) = #{needsReview}",
+            "</if>",
+            "</script>"
+    })
+    long countTeacherReview(@Param("assignmentId") Long assignmentId, @Param("needsReview") Integer needsReview);
+
+    @Select({
+            "<script>",
+            "SELECT a.id AS answer_id,",
+            "       a.attempt_id,",
+            "       a.user_id AS student_id,",
+            "       a.question_id,",
+            "       aq.question_type,",
+            "       aq.score,",
+            "       a.final_score AS current_final_score,",
+            "       COALESCE(gr.needs_review, 0) AS needs_review",
+            "FROM qb_answer a",
+            "JOIN qb_attempt atp ON atp.id = a.attempt_id",
+            "LEFT JOIN qb_attempt_question aq ON aq.id = a.attempt_question_id",
+            "LEFT JOIN qb_grading_record gr ON gr.id = (",
+            "  SELECT g2.id FROM qb_grading_record g2",
+            "  WHERE g2.answer_id = a.id ORDER BY g2.id DESC LIMIT 1",
+            ")",
+            "WHERE 1=1",
+            "<if test='assignmentId != null'>",
+            "  AND atp.assignment_id = #{assignmentId}",
+            "</if>",
+            "<if test='needsReview != null'>",
+            "  AND COALESCE(gr.needs_review, 0) = #{needsReview}",
+            "</if>",
+            "ORDER BY a.id DESC",
+            "LIMIT #{offset}, #{size}",
+            "</script>"
+    })
+    List<TeacherReviewAnswerItemVO> pageTeacherReview(@Param("assignmentId") Long assignmentId,
+                                                      @Param("needsReview") Integer needsReview,
+                                                      @Param("offset") long offset,
+                                                      @Param("size") long size);
 }

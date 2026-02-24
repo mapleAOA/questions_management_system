@@ -1,0 +1,26 @@
+package com.xyz.question_bank_management_system.mapper;
+
+import com.xyz.question_bank_management_system.vo.ClassStudentItemVO;
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+
+import java.util.List;
+
+@Mapper
+public interface QbClassMemberMapper {
+
+    @Insert("INSERT INTO qb_class_member(class_id, student_id, joined_at) VALUES(#{classId}, #{studentId}, NOW(3))")
+    int insert(@Param("classId") Long classId, @Param("studentId") Long studentId);
+
+    @Select("SELECT COUNT(1) FROM qb_class_member WHERE class_id=#{classId} AND student_id=#{studentId}")
+    long countByClassAndStudent(@Param("classId") Long classId, @Param("studentId") Long studentId);
+
+    @Select("SELECT m.student_id, u.username, u.display_name, u.email, m.joined_at " +
+            "FROM qb_class_member m " +
+            "JOIN sys_user u ON u.id=m.student_id AND u.is_deleted=0 " +
+            "WHERE m.class_id=#{classId} " +
+            "ORDER BY m.joined_at DESC, m.student_id DESC")
+    List<ClassStudentItemVO> listStudentsByClassId(@Param("classId") Long classId);
+}
