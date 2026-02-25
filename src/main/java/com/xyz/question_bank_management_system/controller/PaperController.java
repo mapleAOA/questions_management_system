@@ -12,6 +12,8 @@ import com.xyz.question_bank_management_system.vo.PaperDetailVO;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -30,47 +32,69 @@ public class PaperController {
 
     @PutMapping("/{paperId}")
     public ApiResponse<Void> update(@PathVariable Long paperId, @RequestBody @Valid PaperUpsertRequest request) {
-        paperService.update(paperId, request);
+        Long uid = SecurityContextUtil.getUserId();
+        boolean isAdmin = hasRole("ROLE_ADMIN");
+        paperService.update(paperId, request, uid, isAdmin);
         return ApiResponse.ok();
     }
 
     @DeleteMapping("/{paperId}")
     public ApiResponse<Void> delete(@PathVariable Long paperId) {
-        paperService.delete(paperId);
+        Long uid = SecurityContextUtil.getUserId();
+        boolean isAdmin = hasRole("ROLE_ADMIN");
+        paperService.delete(paperId, uid, isAdmin);
         return ApiResponse.ok();
     }
 
     @GetMapping
     public ApiResponse<PageResponse<QbPaper>> page(@RequestParam(defaultValue = "1") long page,
                                                   @RequestParam(defaultValue = "20") long size) {
-        return ApiResponse.ok(paperService.page(page, size));
+        Long uid = SecurityContextUtil.getUserId();
+        boolean isAdmin = hasRole("ROLE_ADMIN");
+        return ApiResponse.ok(paperService.page(page, size, uid, isAdmin));
     }
 
     @GetMapping("/{paperId}")
     public ApiResponse<PaperDetailVO> detail(@PathVariable Long paperId) {
-        return ApiResponse.ok(paperService.detail(paperId));
+        Long uid = SecurityContextUtil.getUserId();
+        boolean isAdmin = hasRole("ROLE_ADMIN");
+        return ApiResponse.ok(paperService.detail(paperId, uid, isAdmin));
     }
 
     @PostMapping("/{paperId}/questions")
     public ApiResponse<Long> addQuestion(@PathVariable Long paperId, @RequestBody @Valid PaperAddQuestionRequest request) {
-        return ApiResponse.ok(paperService.addQuestion(paperId, request));
+        Long uid = SecurityContextUtil.getUserId();
+        boolean isAdmin = hasRole("ROLE_ADMIN");
+        return ApiResponse.ok(paperService.addQuestion(paperId, request, uid, isAdmin));
     }
 
     @PutMapping("/questions/{paperQuestionId}")
     public ApiResponse<Void> updatePaperQuestion(@PathVariable Long paperQuestionId, @RequestBody @Valid PaperQuestionUpdateRequest request) {
-        paperService.updatePaperQuestion(paperQuestionId, request);
+        Long uid = SecurityContextUtil.getUserId();
+        boolean isAdmin = hasRole("ROLE_ADMIN");
+        paperService.updatePaperQuestion(paperQuestionId, request, uid, isAdmin);
         return ApiResponse.ok();
     }
 
     @DeleteMapping("/questions/{paperQuestionId}")
     public ApiResponse<Void> removePaperQuestion(@PathVariable Long paperQuestionId) {
-        paperService.removePaperQuestion(paperQuestionId);
+        Long uid = SecurityContextUtil.getUserId();
+        boolean isAdmin = hasRole("ROLE_ADMIN");
+        paperService.removePaperQuestion(paperQuestionId, uid, isAdmin);
         return ApiResponse.ok();
     }
 
     @PostMapping("/{paperId}/recalculate")
     public ApiResponse<Void> recalculate(@PathVariable Long paperId) {
-        paperService.recalculateTotalScore(paperId);
+        Long uid = SecurityContextUtil.getUserId();
+        boolean isAdmin = hasRole("ROLE_ADMIN");
+        paperService.recalculateTotalScore(paperId, uid, isAdmin);
         return ApiResponse.ok();
+    }
+
+    private boolean hasRole(String role) {
+        return SecurityContextHolder.getContext().getAuthentication().getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch(a -> a.equals(role));
     }
 }

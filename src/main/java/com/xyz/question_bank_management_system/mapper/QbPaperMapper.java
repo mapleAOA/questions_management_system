@@ -27,4 +27,10 @@ public interface QbPaperMapper {
 
     @Select("SELECT COUNT(1) FROM qb_paper WHERE is_deleted=0")
     long countAll();
+
+    @Select("SELECT * FROM qb_paper WHERE is_deleted=0 AND creator_id=#{creatorId} ORDER BY updated_at DESC, id DESC LIMIT #{offset}, #{size}")
+    List<QbPaper> pageByCreator(@Param("creatorId") Long creatorId, @Param("offset") long offset, @Param("size") long size);
+
+    @Select("SELECT COUNT(1) FROM qb_paper WHERE is_deleted=0 AND creator_id=#{creatorId}")
+    long countByCreator(@Param("creatorId") Long creatorId);
 }

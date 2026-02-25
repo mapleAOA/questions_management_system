@@ -34,5 +34,9 @@ public interface QbQuestionMapper {
     List<QbQuestion> searchForPractice(@Param("tagIds") List<Long> tagIds,
                                        @Param("chapters") List<String> chapters,
                                        @Param("questionTypes") List<Integer> questionTypes,
+                                       @Param("visibleTeacherIds") List<Long> visibleTeacherIds,
                                        @Param("limit") long limit);
+
+    List<QbQuestion> selectPublishedByIds(@Param("questionIds") List<Long> questionIds,
+                                          @Param("visibleTeacherIds") List<Long> visibleTeacherIds);
 }

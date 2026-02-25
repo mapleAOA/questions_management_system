@@ -57,14 +57,18 @@ public class ClassServiceImpl implements ClassService {
 
     @Override
     public List<ClassStudentItemVO> listStudents(Long classId, Long currentUserId, boolean isAdmin) {
-        QbClass qbClass = classMapper.selectById(classId);
-        if (qbClass == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "class not found");
-        }
-        if (!isAdmin && !Objects.equals(qbClass.getTeacherId(), currentUserId)) {
-            throw BizException.of(ErrorCode.FORBIDDEN, "forbidden");
-        }
+        loadClassForManage(classId, currentUserId, isAdmin);
         return classMemberMapper.listStudentsByClassId(classId);
+    }
+
+    @Override
+    @Transactional
+    public void removeStudent(Long classId, Long studentId, Long currentUserId, boolean isAdmin) {
+        if (studentId == null) {
+            throw BizException.of(ErrorCode.PARAM_ERROR, "studentId cannot be null");
+        }
+        loadClassForManage(classId, currentUserId, isAdmin);
+        classMemberMapper.removeByClassAndStudent(classId, studentId);
     }
 
     @Override
@@ -117,5 +121,16 @@ public class ClassServiceImpl implements ClassService {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private QbClass loadClassForManage(Long classId, Long currentUserId, boolean isAdmin) {
+        QbClass qbClass = classMapper.selectById(classId);
+        if (qbClass == null) {
+            throw BizException.of(ErrorCode.NOT_FOUND, "class not found");
+        }
+        if (!isAdmin && !Objects.equals(qbClass.getTeacherId(), currentUserId)) {
+            throw BizException.of(ErrorCode.FORBIDDEN, "forbidden");
+        }
+        return qbClass;
     }
 }

@@ -3,10 +3,13 @@ package com.xyz.question_bank_management_system.controller;
 import com.xyz.question_bank_management_system.common.ApiResponse;
 import com.xyz.question_bank_management_system.common.PageResponse;
 import com.xyz.question_bank_management_system.service.LlmCallQueryService;
+import com.xyz.question_bank_management_system.util.SecurityContextUtil;
 import com.xyz.question_bank_management_system.vo.LlmCallDetailVO;
 import com.xyz.question_bank_management_system.vo.LlmCallListItemVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -24,11 +27,21 @@ public class LlmCallController {
             @RequestParam(defaultValue = "1") long page,
             @RequestParam(defaultValue = "10") long size
     ) {
-        return ApiResponse.ok(llmCallQueryService.page(bizType, bizId, page, size));
+        Long uid = SecurityContextUtil.getUserId();
+        boolean isAdmin = hasRole("ROLE_ADMIN");
+        return ApiResponse.ok(llmCallQueryService.page(bizType, bizId, page, size, uid, isAdmin));
     }
 
     @GetMapping("/{llmCallId}")
     public ApiResponse<LlmCallDetailVO> detail(@PathVariable Long llmCallId) {
-        return ApiResponse.ok(llmCallQueryService.detail(llmCallId));
+        Long uid = SecurityContextUtil.getUserId();
+        boolean isAdmin = hasRole("ROLE_ADMIN");
+        return ApiResponse.ok(llmCallQueryService.detail(llmCallId, uid, isAdmin));
+    }
+
+    private boolean hasRole(String role) {
+        return SecurityContextHolder.getContext().getAuthentication().getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch(a -> a.equals(role));
     }
 }

@@ -57,4 +57,90 @@ public interface QbLlmCallMapper {
                                          @Param("bizId") Long bizId,
                                          @Param("offset") long offset,
                                          @Param("size") long size);
+
+    @Select({
+            "<script>",
+            "SELECT COUNT(1)",
+            "FROM qb_llm_call c",
+            "WHERE 1=1",
+            "<if test='bizType != null'>",
+            "  AND c.biz_type = #{bizType}",
+            "</if>",
+            "<if test='bizId != null'>",
+            "  AND c.biz_id = #{bizId}",
+            "</if>",
+            "  AND (",
+            "    (c.biz_type = 1 AND EXISTS (",
+            "       SELECT 1 FROM qb_question q",
+            "       WHERE q.id = c.biz_id AND q.is_deleted = 0 AND q.created_by = #{teacherId}",
+            "    ))",
+            "    OR",
+            "    (c.biz_type = 2 AND EXISTS (",
+            "       SELECT 1",
+            "       FROM qb_answer a",
+            "       JOIN qb_question q ON q.id = a.question_id AND q.is_deleted = 0",
+            "       WHERE a.id = c.biz_id AND q.created_by = #{teacherId}",
+            "    ))",
+            "  )",
+            "</script>"
+    })
+    long countByFilterForTeacher(@Param("bizType") Integer bizType,
+                                 @Param("bizId") Long bizId,
+                                 @Param("teacherId") Long teacherId);
+
+    @Select({
+            "<script>",
+            "SELECT c.id AS llm_call_id, c.biz_type, c.biz_id, c.model_name, c.call_status, c.latency_ms, c.created_at",
+            "FROM qb_llm_call c",
+            "WHERE 1=1",
+            "<if test='bizType != null'>",
+            "  AND c.biz_type = #{bizType}",
+            "</if>",
+            "<if test='bizId != null'>",
+            "  AND c.biz_id = #{bizId}",
+            "</if>",
+            "  AND (",
+            "    (c.biz_type = 1 AND EXISTS (",
+            "       SELECT 1 FROM qb_question q",
+            "       WHERE q.id = c.biz_id AND q.is_deleted = 0 AND q.created_by = #{teacherId}",
+            "    ))",
+            "    OR",
+            "    (c.biz_type = 2 AND EXISTS (",
+            "       SELECT 1",
+            "       FROM qb_answer a",
+            "       JOIN qb_question q ON q.id = a.question_id AND q.is_deleted = 0",
+            "       WHERE a.id = c.biz_id AND q.created_by = #{teacherId}",
+            "    ))",
+            "  )",
+            "ORDER BY c.created_at DESC, c.id DESC",
+            "LIMIT #{offset}, #{size}",
+            "</script>"
+    })
+    List<LlmCallListItemVO> pageByFilterForTeacher(@Param("bizType") Integer bizType,
+                                                    @Param("bizId") Long bizId,
+                                                    @Param("teacherId") Long teacherId,
+                                                    @Param("offset") long offset,
+                                                    @Param("size") long size);
+
+    @Select({
+            "<script>",
+            "SELECT c.*",
+            "FROM qb_llm_call c",
+            "WHERE c.id = #{id}",
+            "  AND (",
+            "    (c.biz_type = 1 AND EXISTS (",
+            "       SELECT 1 FROM qb_question q",
+            "       WHERE q.id = c.biz_id AND q.is_deleted = 0 AND q.created_by = #{teacherId}",
+            "    ))",
+            "    OR",
+            "    (c.biz_type = 2 AND EXISTS (",
+            "       SELECT 1",
+            "       FROM qb_answer a",
+            "       JOIN qb_question q ON q.id = a.question_id AND q.is_deleted = 0",
+            "       WHERE a.id = c.biz_id AND q.created_by = #{teacherId}",
+            "    ))",
+            "  )",
+            "</script>"
+    })
+    QbLlmCall selectByIdForTeacher(@Param("id") Long id, @Param("teacherId") Long teacherId);
 }

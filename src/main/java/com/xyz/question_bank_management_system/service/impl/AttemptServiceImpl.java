@@ -15,6 +15,7 @@ import com.xyz.question_bank_management_system.service.AttemptService;
 import com.xyz.question_bank_management_system.service.LlmService;
 import com.xyz.question_bank_management_system.util.HashUtil;
 import com.xyz.question_bank_management_system.util.PageParamUtil;
+import com.xyz.question_bank_management_system.util.TextRepairUtil;
 import com.xyz.question_bank_management_system.vo.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -41,6 +42,7 @@ public class AttemptServiceImpl implements AttemptService {
     private final QbQuestionOptionMapper optionMapper;
     private final QbQuestionCaseMapper caseMapper;
     private final QbQuestionTagMapper questionTagMapper;
+    private final QbClassMemberMapper classMemberMapper;
 
     private final QbQuestionUserStatMapper questionUserStatMapper;
     private final QbWrongQuestionMapper wrongQuestionMapper;
@@ -108,7 +110,7 @@ public class AttemptServiceImpl implements AttemptService {
         List<QbAttemptQuestion> aqList = new ArrayList<>();
         int order = 1;
         for (QbPaperQuestion pq : ordered) {
-            String snapshotJson = pq.getSnapshotJson();
+            String snapshotJson = repairSnapshotMojibake(pq.getSnapshotJson());
             if (a.getShuffleOptions() != null && a.getShuffleOptions() == 1) {
                 snapshotJson = shuffleOptionsInSnapshot(snapshotJson);
             }
@@ -153,18 +155,24 @@ public class AttemptServiceImpl implements AttemptService {
         List<Long> tagIds = normalizeLongList(request.getScope() == null ? null : request.getScope().getTagIds());
         List<String> chapters = normalizeStringList(request.getScope() == null ? null : request.getScope().getChapters());
         List<Integer> questionTypes = normalizeQuestionTypes(request.getScope() == null ? null : request.getScope().getQuestionTypes());
+        List<Long> questionIds = normalizeLongList(request.getScope() == null ? null : request.getScope().getQuestionIds());
+        List<Long> visibleTeacherIds = resolveVisibleTeacherIds(userId);
 
-        int questionCount = Math.max(1, Math.min(50, totalScore / 10));
-        long candidateLimit = Math.max(questionCount * 5L, 50L);
-        List<QbQuestion> candidates = questionMapper.searchForPractice(tagIds, chapters, questionTypes, candidateLimit);
-        if (candidates == null || candidates.isEmpty()) {
-            throw BizException.of(ErrorCode.BIZ_ERROR, "no published questions match current scope");
+        List<QbQuestion> selected;
+        if (questionIds != null && !questionIds.isEmpty()) {
+            selected = selectPracticeQuestionsByIds(questionIds, visibleTeacherIds);
+        } else {
+            int questionCount = Math.max(1, Math.min(50, totalScore / 10));
+            long candidateLimit = Math.max(questionCount * 5L, 50L);
+            List<QbQuestion> candidates = questionMapper.searchForPractice(tagIds, chapters, questionTypes, visibleTeacherIds, candidateLimit);
+            if (candidates == null || candidates.isEmpty()) {
+                throw BizException.of(ErrorCode.BIZ_ERROR, "no published questions match current scope");
+            }
+            Collections.shuffle(candidates);
+            int picked = Math.min(questionCount, candidates.size());
+            selected = candidates.subList(0, picked);
         }
-
-        Collections.shuffle(candidates);
-        int picked = Math.min(questionCount, candidates.size());
-        List<QbQuestion> selected = candidates.subList(0, picked);
-        int[] scores = splitScores(totalScore, picked);
+        int[] scores = splitScores(totalScore, selected.size());
 
         long usedAttempts = attemptMapper.countByUser(userId, AttemptTypeEnum.PRACTICE.getCode());
         int attemptNo = (int) usedAttempts + 1;
@@ -180,7 +188,7 @@ public class AttemptServiceImpl implements AttemptService {
         List<QbAttemptQuestion> aqList = new ArrayList<>();
         int orderNo = 1;
         for (QbQuestion q : selected) {
-            String snapshotJson = buildQuestionSnapshot(q.getId());
+            String snapshotJson = repairSnapshotMojibake(buildQuestionSnapshot(q.getId()));
             String snapshotHash = HashUtil.sha256(snapshotJson);
             List<Long> qTagIds = questionTagMapper.selectTagIdsByQuestionId(q.getId());
             String tagIdsJson;
@@ -231,7 +239,7 @@ public class AttemptServiceImpl implements AttemptService {
             vo.setQuestionId(aq.getQuestionId());
             vo.setOrderNo(aq.getOrderNo());
             vo.setScore(aq.getScore());
-            vo.setSnapshotJson(sanitizeSnapshotForStudent(aq.getSnapshotJson()));
+            vo.setSnapshotJson(sanitizeSnapshotForStudent(repairSnapshotMojibake(aq.getSnapshotJson())));
 
             QbAnswer ans = byAttemptQuestionId.get(aq.getId());
             if (ans != null) {
@@ -255,7 +263,7 @@ public class AttemptServiceImpl implements AttemptService {
         if (attempt.getStatus() == null || attempt.getStatus() != AttemptStatusEnum.IN_PROGRESS.getCode()) {
             throw BizException.of(ErrorCode.FORBIDDEN, "当前状态不允许保存草稿");
         }
-        answerMapper.updateDraft(answerId, request.getAnswerContent());
+        answerMapper.updateDraft(answerId, normalizeAnswerContent(request.getAnswerContent()));
     }
 
     @Override
@@ -277,7 +285,7 @@ public class AttemptServiceImpl implements AttemptService {
         if (attempt.getStatus() == null || attempt.getStatus() != AttemptStatusEnum.IN_PROGRESS.getCode()) {
             throw BizException.of(ErrorCode.FORBIDDEN, "attempt is not in progress");
         }
-        answerMapper.submitOne(answerId, request.getAnswerContent(), LocalDateTime.now());
+        answerMapper.submitOne(answerId, normalizeAnswerContent(request.getAnswerContent()), LocalDateTime.now());
     }
 
     @Override
@@ -552,6 +560,40 @@ public class AttemptServiceImpl implements AttemptService {
                 .toList();
     }
 
+    private List<Long> resolveVisibleTeacherIds(Long studentId) {
+        List<Long> teacherIds = classMemberMapper.listTeacherIdsByStudentId(studentId);
+        if (teacherIds == null || teacherIds.isEmpty()) {
+            return List.of();
+        }
+        return teacherIds.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+    }
+
+    private List<QbQuestion> selectPracticeQuestionsByIds(List<Long> questionIds, List<Long> visibleTeacherIds) {
+        if (questionIds == null || questionIds.isEmpty()) {
+            throw BizException.of(ErrorCode.PARAM_ERROR, "questionIds cannot be empty");
+        }
+        if (questionIds.size() > 100) {
+            throw BizException.of(ErrorCode.PARAM_ERROR, "questionIds size cannot exceed 100");
+        }
+        List<QbQuestion> rows = questionMapper.selectPublishedByIds(questionIds, visibleTeacherIds);
+        Map<Long, QbQuestion> byId = new HashMap<>();
+        for (QbQuestion row : rows) {
+            byId.put(row.getId(), row);
+        }
+        List<QbQuestion> ordered = new ArrayList<>();
+        for (Long qid : questionIds) {
+            QbQuestion q = byId.get(qid);
+            if (q == null) {
+                throw BizException.of(ErrorCode.PARAM_ERROR, "question is not published or not found: " + qid);
+            }
+            ordered.add(q);
+        }
+        return ordered;
+    }
+
     private List<String> normalizeStringList(List<String> values) {
         if (values == null || values.isEmpty()) {
             return null;
@@ -574,8 +616,9 @@ public class AttemptServiceImpl implements AttemptService {
                 .distinct()
                 .toList();
         for (Integer t : normalized) {
-            if (t < 1 || t > 7) {
-                throw BizException.of(ErrorCode.PARAM_ERROR, "questionType out of range: " + t);
+            QuestionTypeEnum type = QuestionTypeEnum.of(t);
+            if (type == null || !type.isEnabledNow()) {
+                throw BizException.of(ErrorCode.PARAM_ERROR, "questionType is disabled or invalid: " + t);
             }
         }
         return normalized;
@@ -718,6 +761,50 @@ public class AttemptServiceImpl implements AttemptService {
         }
     }
 
+    private String repairSnapshotMojibake(String snapshotJson) {
+        if (snapshotJson == null || snapshotJson.isBlank()) {
+            return snapshotJson;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(snapshotJson);
+            repairMojibakeInNode(root);
+            return objectMapper.writeValueAsString(root);
+        } catch (Exception e) {
+            return snapshotJson;
+        }
+    }
+
+    private void repairMojibakeInNode(JsonNode node) {
+        if (node == null) {
+            return;
+        }
+        if (node.isObject()) {
+            var obj = (com.fasterxml.jackson.databind.node.ObjectNode) node;
+            var fields = obj.fields();
+            while (fields.hasNext()) {
+                var entry = fields.next();
+                JsonNode child = entry.getValue();
+                if (child != null && child.isTextual()) {
+                    obj.put(entry.getKey(), TextRepairUtil.repairGbkUtf8Mojibake(child.asText()));
+                } else {
+                    repairMojibakeInNode(child);
+                }
+            }
+            return;
+        }
+        if (node.isArray()) {
+            var arr = (com.fasterxml.jackson.databind.node.ArrayNode) node;
+            for (int i = 0; i < arr.size(); i++) {
+                JsonNode child = arr.get(i);
+                if (child != null && child.isTextual()) {
+                    arr.set(i, objectMapper.getNodeFactory().textNode(TextRepairUtil.repairGbkUtf8Mojibake(child.asText())));
+                } else {
+                    repairMojibakeInNode(child);
+                }
+            }
+        }
+    }
+
     private String sanitizeSnapshotForStudent(String snapshotJson) {
         try {
             JsonNode root = objectMapper.readTree(snapshotJson);
@@ -765,6 +852,10 @@ public class AttemptServiceImpl implements AttemptService {
     private String safeJson(String s) {
         if (s == null) return "";
         return s.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    private String normalizeAnswerContent(String answerContent) {
+        return answerContent == null ? "" : answerContent;
     }
 
     private LlmGradeResult tryLlmGrade(QbAnswer ans, QbAttemptQuestion aq, int maxScore) {

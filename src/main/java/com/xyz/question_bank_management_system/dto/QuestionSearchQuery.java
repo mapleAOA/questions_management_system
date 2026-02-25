@@ -11,10 +11,25 @@ public class QuestionSearchQuery {
     private Integer difficulty;
     private Integer questionType;
     private Integer status;
-    /** 单个标签过滤 */
+    /** single tag filter */
     private Long tagId;
-    /** 多个标签过滤（AND/OR 逻辑由 service 决定，当前用 OR） */
+    /** multi-tag OR filter */
     private List<Long> tagIds;
-    /** 创建人过滤 */
+    /** creator filter */
     private Long createdBy;
+
+    /** current viewer id (for teacher/student scope filtering) */
+    private Long viewerId;
+
+    /** teacher source: all/mine/bank */
+    private String sourceType;
+
+    /** apply teacher visibility scope */
+    private Boolean teacherScope;
+
+    /** apply student visibility scope */
+    private Boolean studentScope;
+
+    /** teacher ids visible to student (joined class teachers) */
+    private List<Long> visibleTeacherIds;
 }

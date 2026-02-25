@@ -38,4 +38,11 @@ public enum QuestionTypeEnum {
     public boolean isSubjective() {
         return !isObjective();
     }
+
+    /**
+     * 业务当前允许新建/编辑/筛选的题型（下线了简答题和代码阅读题）。
+     */
+    public boolean isEnabledNow() {
+        return this != SHORT && this != CODE_READING;
+    }
 }

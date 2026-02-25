@@ -10,6 +10,12 @@ public interface QbQuestionTagMapper {
     @Select("SELECT tag_id FROM qb_question_tag WHERE question_id=#{questionId}")
     List<Long> selectTagIdsByQuestionId(@Param("questionId") Long questionId);
 
+    @Select("SELECT t.tag_name FROM qb_question_tag qt " +
+            "JOIN qb_tag t ON t.id=qt.tag_id " +
+            "WHERE qt.question_id=#{questionId} AND t.is_deleted=0 " +
+            "ORDER BY t.sort_order ASC, t.id ASC")
+    List<String> selectTagNamesByQuestionId(@Param("questionId") Long questionId);
+
     @Delete("DELETE FROM qb_question_tag WHERE question_id=#{questionId}")
     int deleteByQuestionId(@Param("questionId") Long questionId);
 

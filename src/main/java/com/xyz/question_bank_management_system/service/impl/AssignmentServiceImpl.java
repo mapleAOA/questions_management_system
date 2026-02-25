@@ -34,8 +34,8 @@ public class AssignmentServiceImpl implements AssignmentService {
 
     @Override
     @Transactional
-    public Long create(AssignmentUpsertRequest request, Long creatorId) {
-        ensurePaperExists(request.getPaperId());
+    public Long create(AssignmentUpsertRequest request, Long creatorId, boolean isAdmin) {
+        ensurePaperUsable(request.getPaperId(), creatorId, isAdmin);
         validateTimeRange(request);
 
         QbAssignment a = new QbAssignment();
@@ -56,13 +56,10 @@ public class AssignmentServiceImpl implements AssignmentService {
 
     @Override
     @Transactional
-    public void update(Long assignmentId, AssignmentUpsertRequest request) {
-        QbAssignment a = assignmentMapper.selectById(assignmentId);
-        if (a == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "assignment not found");
-        }
+    public void update(Long assignmentId, AssignmentUpsertRequest request, Long actorId, boolean isAdmin) {
+        QbAssignment a = loadAssignmentForManage(assignmentId, actorId, isAdmin);
 
-        ensurePaperExists(request.getPaperId());
+        ensurePaperUsable(request.getPaperId(), actorId, isAdmin);
         validateTimeRange(request);
 
         a.setPaperId(request.getPaperId());
@@ -80,41 +77,29 @@ public class AssignmentServiceImpl implements AssignmentService {
 
     @Override
     @Transactional
-    public void delete(Long assignmentId) {
-        QbAssignment a = assignmentMapper.selectById(assignmentId);
-        if (a == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "assignment not found");
-        }
+    public void delete(Long assignmentId, Long actorId, boolean isAdmin) {
+        loadAssignmentForManage(assignmentId, actorId, isAdmin);
         assignmentMapper.softDelete(assignmentId);
         targetMapper.deleteByAssignmentId(assignmentId);
         targetClassMapper.deleteByAssignmentId(assignmentId);
     }
 
     @Override
-    public void publish(Long assignmentId) {
-        QbAssignment a = assignmentMapper.selectById(assignmentId);
-        if (a == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "assignment not found");
-        }
+    public void publish(Long assignmentId, Long actorId, boolean isAdmin) {
+        loadAssignmentForManage(assignmentId, actorId, isAdmin);
         assignmentMapper.updatePublishStatus(assignmentId, AssignmentPublishStatusEnum.PUBLISHED.getCode());
     }
 
     @Override
-    public void close(Long assignmentId) {
-        QbAssignment a = assignmentMapper.selectById(assignmentId);
-        if (a == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "assignment not found");
-        }
+    public void close(Long assignmentId, Long actorId, boolean isAdmin) {
+        loadAssignmentForManage(assignmentId, actorId, isAdmin);
         assignmentMapper.updatePublishStatus(assignmentId, AssignmentPublishStatusEnum.CLOSED.getCode());
     }
 
     @Override
     @Transactional
-    public void setTargets(Long assignmentId, AssignmentTargetsRequest request) {
-        QbAssignment a = assignmentMapper.selectById(assignmentId);
-        if (a == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "assignment not found");
-        }
+    public void setTargets(Long assignmentId, AssignmentTargetsRequest request, Long actorId, boolean isAdmin) {
+        loadAssignmentForManage(assignmentId, actorId, isAdmin);
 
         List<Long> userIds = request.getUserIds() == null ? List.of() : request.getUserIds().stream()
                 .filter(Objects::nonNull)
@@ -153,12 +138,8 @@ public class AssignmentServiceImpl implements AssignmentService {
     }
 
     @Override
-    public QbAssignment detail(Long assignmentId) {
-        QbAssignment a = assignmentMapper.selectById(assignmentId);
-        if (a == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "assignment not found");
-        }
-        return a;
+    public QbAssignment detail(Long assignmentId, Long actorId, boolean isAdmin) {
+        return loadAssignmentForManage(assignmentId, actorId, isAdmin);
     }
 
     @Override
@@ -195,10 +176,13 @@ public class AssignmentServiceImpl implements AssignmentService {
         return PageResponse.of(safePage, safeSize, total, rows);
     }
 
-    private void ensurePaperExists(Long paperId) {
+    private void ensurePaperUsable(Long paperId, Long actorId, boolean isAdmin) {
         QbPaper paper = paperMapper.selectById(paperId);
         if (paper == null) {
             throw BizException.of(ErrorCode.NOT_FOUND, "paper not found");
+        }
+        if (!isAdmin && !Objects.equals(paper.getCreatorId(), actorId)) {
+            throw BizException.of(ErrorCode.FORBIDDEN, "no permission to use this paper");
         }
     }
 
@@ -221,5 +205,16 @@ public class AssignmentServiceImpl implements AssignmentService {
             return normalized;
         }
         throw BizException.of(ErrorCode.PARAM_ERROR, "status must be one of: ongoing, expired, all");
+    }
+
+    private QbAssignment loadAssignmentForManage(Long assignmentId, Long actorId, boolean isAdmin) {
+        QbAssignment a = assignmentMapper.selectById(assignmentId);
+        if (a == null) {
+            throw BizException.of(ErrorCode.NOT_FOUND, "assignment not found");
+        }
+        if (!isAdmin && !Objects.equals(a.getCreatedBy(), actorId)) {
+            throw BizException.of(ErrorCode.FORBIDDEN, "no permission to manage this assignment");
+        }
+        return a;
     }
 }

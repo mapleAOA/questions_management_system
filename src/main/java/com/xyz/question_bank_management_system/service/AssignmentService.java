@@ -8,24 +8,24 @@ import com.xyz.question_bank_management_system.vo.AssignmentMyItemVO;
 
 public interface AssignmentService {
 
-    Long create(AssignmentUpsertRequest request, Long creatorId);
+    Long create(AssignmentUpsertRequest request, Long creatorId, boolean isAdmin);
 
-    void update(Long assignmentId, AssignmentUpsertRequest request);
+    void update(Long assignmentId, AssignmentUpsertRequest request, Long actorId, boolean isAdmin);
 
-    void delete(Long assignmentId);
+    void delete(Long assignmentId, Long actorId, boolean isAdmin);
 
-    void publish(Long assignmentId);
+    void publish(Long assignmentId, Long actorId, boolean isAdmin);
 
-    void close(Long assignmentId);
+    void close(Long assignmentId, Long actorId, boolean isAdmin);
 
-    void setTargets(Long assignmentId, AssignmentTargetsRequest request);
+    void setTargets(Long assignmentId, AssignmentTargetsRequest request, Long actorId, boolean isAdmin);
 
     /**
      * teacherId: 教师本人（教师端列表）；isAdmin=true 时忽略 teacherId 返回全量。
      */
     PageResponse<QbAssignment> pageMineOrAll(long page, long size, Long teacherId, boolean isAdmin);
 
-    QbAssignment detail(Long assignmentId);
+    QbAssignment detail(Long assignmentId, Long actorId, boolean isAdmin);
 
     QbAssignment detailForStudent(Long assignmentId, Long userId);
 

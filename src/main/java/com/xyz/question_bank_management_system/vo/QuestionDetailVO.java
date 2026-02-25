@@ -25,6 +25,7 @@ public class QuestionDetailVO {
 
     private List<QuestionOptionVO> options;
     private List<Long> tagIds;
+    private List<String> tagNames;
     private List<QuestionCaseVO> cases;
 
     @Data

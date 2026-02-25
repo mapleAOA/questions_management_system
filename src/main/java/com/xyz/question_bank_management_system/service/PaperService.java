@@ -11,19 +11,19 @@ public interface PaperService {
 
     Long create(PaperUpsertRequest request, Long creatorId);
 
-    void update(Long paperId, PaperUpsertRequest request);
+    void update(Long paperId, PaperUpsertRequest request, Long actorId, boolean isAdmin);
 
-    void delete(Long paperId);
+    void delete(Long paperId, Long actorId, boolean isAdmin);
 
-    PageResponse<QbPaper> page(long page, long size);
+    PageResponse<QbPaper> page(long page, long size, Long actorId, boolean isAdmin);
 
-    PaperDetailVO detail(Long paperId);
+    PaperDetailVO detail(Long paperId, Long actorId, boolean isAdmin);
 
-    Long addQuestion(Long paperId, PaperAddQuestionRequest request);
+    Long addQuestion(Long paperId, PaperAddQuestionRequest request, Long actorId, boolean isAdmin);
 
-    void updatePaperQuestion(Long paperQuestionId, PaperQuestionUpdateRequest request);
+    void updatePaperQuestion(Long paperQuestionId, PaperQuestionUpdateRequest request, Long actorId, boolean isAdmin);
 
-    void removePaperQuestion(Long paperQuestionId);
+    void removePaperQuestion(Long paperQuestionId, Long actorId, boolean isAdmin);
 
-    void recalculateTotalScore(Long paperId);
+    void recalculateTotalScore(Long paperId, Long actorId, boolean isAdmin);
 }

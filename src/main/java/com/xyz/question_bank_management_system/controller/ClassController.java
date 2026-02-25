@@ -14,6 +14,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -50,6 +51,15 @@ public class ClassController {
         Long uid = SecurityContextUtil.getUserId();
         boolean isAdmin = hasRole("ROLE_ADMIN");
         return ApiResponse.ok(classService.listStudents(classId, uid, isAdmin));
+    }
+
+    @DeleteMapping("/{classId}/students/{studentId}")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
+    public ApiResponse<Void> removeStudent(@PathVariable Long classId, @PathVariable Long studentId) {
+        Long uid = SecurityContextUtil.getUserId();
+        boolean isAdmin = hasRole("ROLE_ADMIN");
+        classService.removeStudent(classId, studentId, uid, isAdmin);
+        return ApiResponse.ok();
     }
 
     @PostMapping("/join")

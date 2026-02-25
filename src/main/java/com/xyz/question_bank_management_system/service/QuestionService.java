@@ -14,21 +14,21 @@ public interface QuestionService {
 
     Long create(QuestionUpsertRequest request, Long creatorId);
 
-    void update(Long questionId, QuestionUpsertRequest request);
+    void update(Long questionId, QuestionUpsertRequest request, Long actorId, boolean isAdmin);
 
-    void delete(Long questionId);
+    void delete(Long questionId, Long actorId, boolean isAdmin);
 
-    QuestionDetailVO detail(Long questionId);
+    QuestionDetailVO detail(Long questionId, Long actorId, boolean isAdmin);
 
     PageResponse<QuestionListItemVO> search(QuestionSearchQuery query, long page, long size);
 
-    void publish(Long questionId);
+    void publish(Long questionId, Long actorId, boolean isAdmin);
 
-    Long generateAnalysisByLlm(Long questionId);
+    Long generateAnalysisByLlm(Long questionId, Long actorId, boolean isAdmin);
 
-    List<QbQuestionCase> listCases(Long questionId);
+    List<QbQuestionCase> listCases(Long questionId, Long actorId, boolean isAdmin);
 
-    Long upsertCase(Long questionId, QuestionCaseUpsertRequest request);
+    Long upsertCase(Long questionId, QuestionCaseUpsertRequest request, Long actorId, boolean isAdmin);
 
-    void deleteCase(Long caseId);
+    void deleteCase(Long caseId, Long actorId, boolean isAdmin);
 }

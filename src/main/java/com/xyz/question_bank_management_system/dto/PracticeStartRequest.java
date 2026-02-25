@@ -23,5 +23,6 @@ public class PracticeStartRequest {
         private List<Long> tagIds;
         private List<String> chapters;
         private List<Integer> questionTypes;
+        private List<Long> questionIds;
     }
 }

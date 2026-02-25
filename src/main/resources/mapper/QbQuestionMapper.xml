@@ -4,6 +4,7 @@
 
     <sql id="BaseWhere">
         q.is_deleted=0
+        AND q.question_type IN (1, 2, 3, 4, 6)
         <if test="q != null">
             <if test="q.keyword != null and q.keyword != ''">
                 AND (q.title LIKE CONCAT('%', #{q.keyword}, '%')
@@ -23,6 +24,51 @@
             </if>
             <if test="q.createdBy != null">
                 AND q.created_by = #{q.createdBy}
+            </if>
+            <if test="q.studentScope != null and q.studentScope">
+                AND (
+                    EXISTS (
+                        SELECT 1
+                        FROM sys_user_role ur
+                        JOIN sys_role r ON r.id = ur.role_id
+                        WHERE ur.user_id = q.created_by
+                          AND r.role_code = 'ADMIN'
+                    )
+                    <if test="q.visibleTeacherIds != null and q.visibleTeacherIds.size > 0">
+                        OR q.created_by IN
+                        <foreach collection="q.visibleTeacherIds" item="tid" open="(" close=")" separator=",">
+                            #{tid}
+                        </foreach>
+                    </if>
+                )
+            </if>
+            <if test="q.teacherScope != null and q.teacherScope">
+                <choose>
+                    <when test='q.sourceType != null and q.sourceType.equals("mine")'>
+                        AND q.created_by = #{q.viewerId}
+                    </when>
+                    <when test='q.sourceType != null and q.sourceType.equals("bank")'>
+                        AND EXISTS (
+                            SELECT 1
+                            FROM sys_user_role ur
+                            JOIN sys_role r ON r.id = ur.role_id
+                            WHERE ur.user_id = q.created_by
+                              AND r.role_code = 'ADMIN'
+                        )
+                    </when>
+                    <otherwise>
+                        AND (
+                            q.created_by = #{q.viewerId}
+                            OR EXISTS (
+                                SELECT 1
+                                FROM sys_user_role ur
+                                JOIN sys_role r ON r.id = ur.role_id
+                                WHERE ur.user_id = q.created_by
+                                  AND r.role_code = 'ADMIN'
+                            )
+                        )
+                    </otherwise>
+                </choose>
             </if>
             <if test="q.tagId != null">
                 AND EXISTS (
@@ -62,6 +108,7 @@
         FROM qb_question q
         WHERE q.is_deleted = 0
           AND q.status = 2
+          AND q.question_type IN (1, 2, 3, 4, 6)
           <if test="questionTypes != null and questionTypes.size > 0">
               AND q.question_type IN
               <foreach collection="questionTypes" item="t" open="(" close=")" separator=",">
@@ -81,12 +128,54 @@
                   WHERE qt.question_id = q.id
                     AND qt.tag_id IN
                     <foreach collection="tagIds" item="tid" open="(" close=")" separator=",">
-                        #{tid}
+                      #{tid}
                     </foreach>
               )
           </if>
+          AND (
+              EXISTS (
+                  SELECT 1
+                  FROM sys_user_role ur
+                  JOIN sys_role r ON r.id = ur.role_id
+                  WHERE ur.user_id = q.created_by
+                    AND r.role_code = 'ADMIN'
+              )
+              <if test="visibleTeacherIds != null and visibleTeacherIds.size > 0">
+                  OR q.created_by IN
+                  <foreach collection="visibleTeacherIds" item="tid" open="(" close=")" separator=",">
+                      #{tid}
+                  </foreach>
+              </if>
+          )
         ORDER BY q.updated_at DESC, q.id DESC
         LIMIT #{limit}
+    </select>
+
+    <select id="selectPublishedByIds" resultType="com.xyz.question_bank_management_system.entity.QbQuestion">
+        SELECT q.*
+        FROM qb_question q
+        WHERE q.is_deleted = 0
+          AND q.status = 2
+          AND q.question_type IN (1, 2, 3, 4, 6)
+          AND q.id IN
+          <foreach collection="questionIds" item="qid" open="(" close=")" separator=",">
+              #{qid}
+          </foreach>
+          AND (
+              EXISTS (
+                  SELECT 1
+                  FROM sys_user_role ur
+                  JOIN sys_role r ON r.id = ur.role_id
+                  WHERE ur.user_id = q.created_by
+                    AND r.role_code = 'ADMIN'
+              )
+              <if test="visibleTeacherIds != null and visibleTeacherIds.size > 0">
+                  OR q.created_by IN
+                  <foreach collection="visibleTeacherIds" item="tid" open="(" close=")" separator=",">
+                      #{tid}
+                  </foreach>
+              </if>
+          )
     </select>
 
 </mapper>

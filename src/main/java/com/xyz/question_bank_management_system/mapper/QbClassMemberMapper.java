@@ -5,6 +5,7 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Delete;
 
 import java.util.List;
 
@@ -23,4 +24,13 @@ public interface QbClassMemberMapper {
             "WHERE m.class_id=#{classId} " +
             "ORDER BY m.joined_at DESC, m.student_id DESC")
     List<ClassStudentItemVO> listStudentsByClassId(@Param("classId") Long classId);
+
+    @Select("SELECT DISTINCT c.teacher_id " +
+            "FROM qb_class_member m " +
+            "JOIN qb_class c ON c.id=m.class_id AND c.is_deleted=0 " +
+            "WHERE m.student_id=#{studentId}")
+    List<Long> listTeacherIdsByStudentId(@Param("studentId") Long studentId);
+
+    @Delete("DELETE FROM qb_class_member WHERE class_id=#{classId} AND student_id=#{studentId}")
+    int removeByClassAndStudent(@Param("classId") Long classId, @Param("studentId") Long studentId);
 }

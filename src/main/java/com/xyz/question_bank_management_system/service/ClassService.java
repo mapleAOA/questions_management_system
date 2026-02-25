@@ -16,6 +16,8 @@ public interface ClassService {
 
     List<ClassStudentItemVO> listStudents(Long classId, Long currentUserId, boolean isAdmin);
 
+    void removeStudent(Long classId, Long studentId, Long currentUserId, boolean isAdmin);
+
     void joinByCode(JoinClassRequest request, Long studentId);
 
     List<StudentClassItemVO> listMyClasses(Long studentId);

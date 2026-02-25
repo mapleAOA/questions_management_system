@@ -128,14 +128,12 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
             throw BizException.of(ErrorCode.PARAM_ERROR, "score must be between 0 and " + maxScore);
         }
 
-        int autoScore = answer.getAutoScore() == null ? 0 : answer.getAutoScore();
-        int isCorrect = score >= maxScore && maxScore > 0 ? 1 : 0;
-        answerMapper.updateScoring(answerId, autoScore, score, isCorrect, LocalDateTime.now());
+        int safeScore = applyScoreAndDelta(answer, aq, score);
 
         QbGradingRecord record = new QbGradingRecord();
         record.setAnswerId(answerId);
         record.setGradingMode(3);
-        record.setScore(score);
+        record.setScore(safeScore);
         record.setDetailJson("{\"source\":\"manual\"}");
         record.setNeedsReview(0);
         record.setReviewerId(reviewerId);
@@ -145,6 +143,7 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
     }
 
     @Override
+    @Transactional
     public List<Long> llmRetry(Long answerId, String modelName, Double temperature, Integer times) {
         QbAnswer answer = answerMapper.selectById(answerId);
         if (answer == null) {
@@ -164,6 +163,25 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
             if (call != null && call.getId() != null) {
                 llmCallIds.add(call.getId());
             }
+            if (call == null || call.getCallStatus() == null || call.getCallStatus() != 1) {
+                continue;
+            }
+            ParsedLlmGrade parsed = parseLlmGradeResult(call);
+            if (parsed == null || parsed.score == null) {
+                continue;
+            }
+            int finalScore = applyScoreAndDelta(answer, aq, parsed.score);
+            QbGradingRecord record = new QbGradingRecord();
+            record.setAnswerId(answerId);
+            record.setGradingMode(2);
+            record.setScore(finalScore);
+            record.setDetailJson(parsed.detailJson);
+            record.setLlmCallId(call.getId());
+            record.setConfidence(parsed.confidence);
+            record.setNeedsReview(parsed.needsReview ? 1 : 0);
+            record.setReviewComment(parsed.comment);
+            record.setIsFinal(parsed.needsReview ? 0 : 1);
+            gradingRecordMapper.insert(record);
         }
         return llmCallIds;
     }
@@ -212,6 +230,81 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
                 + "studentAnswer=" + nullToEmpty(answer.getAnswerContent()) + "\n";
     }
 
+    private int applyScoreAndDelta(QbAnswer answer, QbAttemptQuestion aq, int score) {
+        int maxScore = aq.getScore() == null ? 0 : aq.getScore();
+        int safeScore = Math.max(0, Math.min(maxScore, score));
+        int oldFinalScore = answer.getFinalScore() == null ? 0 : answer.getFinalScore();
+        int autoScore = answer.getAutoScore() == null ? 0 : answer.getAutoScore();
+        int isCorrect = safeScore >= maxScore && maxScore > 0 ? 1 : 0;
+
+        answerMapper.updateScoring(answer.getId(), autoScore, safeScore, isCorrect, LocalDateTime.now());
+
+        int delta = safeScore - oldFinalScore;
+        if (delta != 0) {
+            if (isObjectiveQuestionType(aq.getQuestionType())) {
+                attemptMapper.updateScoreDelta(answer.getAttemptId(), delta, delta, 0);
+            } else {
+                attemptMapper.updateScoreDelta(answer.getAttemptId(), delta, 0, delta);
+            }
+        }
+        answer.setFinalScore(safeScore);
+        return safeScore;
+    }
+
+    private ParsedLlmGrade parseLlmGradeResult(QbLlmCall call) {
+        try {
+            String content = llmService.extractContent(call.getResponseText());
+            if (content == null || content.isBlank()) {
+                return null;
+            }
+            JsonNode json = parseJsonNode(content);
+            if (json == null || !json.isObject() || !json.has("score")) {
+                return null;
+            }
+            ParsedLlmGrade result = new ParsedLlmGrade();
+            result.score = json.get("score").asInt();
+            if (json.has("confidence") && !json.get("confidence").isNull()) {
+                result.confidence = json.get("confidence").asDouble();
+            }
+            result.needsReview = !json.has("needsReview") || json.get("needsReview").asBoolean(true);
+            if (result.confidence != null && result.confidence < 0.55) {
+                result.needsReview = true;
+            }
+            if (json.has("comment") && !json.get("comment").isNull()) {
+                result.comment = json.get("comment").asText();
+            }
+            result.detailJson = json.toString();
+            return result;
+        } catch (Exception ignore) {
+            return null;
+        }
+    }
+
+    private JsonNode parseJsonNode(String content) {
+        try {
+            return objectMapper.readTree(content);
+        } catch (Exception ignore) {
+            String normalized = content.trim();
+            if (normalized.startsWith("```")) {
+                normalized = normalized.replaceFirst("^```(?:json)?\\s*", "");
+                normalized = normalized.replaceFirst("\\s*```$", "");
+                try {
+                    return objectMapper.readTree(normalized.trim());
+                } catch (Exception ignored) {
+                    return null;
+                }
+            }
+            return null;
+        }
+    }
+
+    private boolean isObjectiveQuestionType(Integer questionType) {
+        if (questionType == null) {
+            return false;
+        }
+        return questionType == 1 || questionType == 2 || questionType == 3 || questionType == 4;
+    }
+
     private Object parseSnapshot(String snapshotJson) {
         if (snapshotJson == null || snapshotJson.isBlank()) {
             return null;
@@ -225,5 +318,13 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
 
     private String nullToEmpty(String value) {
         return value == null ? "" : value;
+    }
+
+    private static class ParsedLlmGrade {
+        Integer score;
+        Double confidence;
+        boolean needsReview = true;
+        String comment;
+        String detailJson;
     }
 }

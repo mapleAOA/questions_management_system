@@ -19,6 +19,7 @@ import com.xyz.question_bank_management_system.mapper.QbQuestionTagMapper;
 import com.xyz.question_bank_management_system.service.LlmService;
 import com.xyz.question_bank_management_system.service.QuestionService;
 import com.xyz.question_bank_management_system.util.PageParamUtil;
+import com.xyz.question_bank_management_system.util.TextRepairUtil;
 import com.xyz.question_bank_management_system.vo.QuestionDetailVO;
 import com.xyz.question_bank_management_system.vo.QuestionListItemVO;
 import lombok.RequiredArgsConstructor;
@@ -26,14 +27,27 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
 public class QuestionServiceImpl implements QuestionService {
+
+    private static final Set<String> ALLOWED_CHAPTERS = Set.of(
+            "\u57FA\u7840\u8BED\u6CD5",
+            "\u5B57\u7B26\u4E32\u5904\u7406",
+            "\u6570\u7EC4\u4E0E\u77E9\u9635",
+            "\u51FD\u6570\u4E0E\u9012\u5F52",
+            "\u6307\u9488\u57FA\u7840",
+            "\u6570\u636E\u7ED3\u6784\u57FA\u7840",
+            "\u6587\u4EF6\u8F93\u5165\u8F93\u51FA",
+            "\u7EFC\u5408\u5E94\u7528"
+    );
 
     private final QbQuestionMapper questionMapper;
     private final QbQuestionOptionMapper optionMapper;
@@ -44,15 +58,17 @@ public class QuestionServiceImpl implements QuestionService {
     @Override
     @Transactional
     public Long create(QuestionUpsertRequest request, Long creatorId) {
-        validateQuestion(request);
+        QuestionTypeEnum type = validateQuestion(request);
+        String chapter = normalizeAndValidateChapter(request.getChapter());
+        String standardAnswer = resolveStandardAnswerForPersistence(request, type);
 
         QbQuestion q = new QbQuestion();
         q.setTitle(request.getTitle());
         q.setQuestionType(request.getQuestionType());
         q.setDifficulty(request.getDifficulty());
-        q.setChapter(request.getChapter());
+        q.setChapter(chapter);
         q.setStem(request.getStem());
-        q.setStandardAnswer(request.getStandardAnswer());
+        q.setStandardAnswer(standardAnswer);
         q.setAnswerFormat(request.getAnswerFormat());
         q.setAnalysisText(request.getAnalysisText());
         q.setAnalysisSource(request.getAnalysisSource());
@@ -67,20 +83,22 @@ public class QuestionServiceImpl implements QuestionService {
 
     @Override
     @Transactional
-    public void update(Long questionId, QuestionUpsertRequest request) {
-        QbQuestion exist = questionMapper.selectById(questionId);
+    public void update(Long questionId, QuestionUpsertRequest request, Long actorId, boolean isAdmin) {
+        QbQuestion exist = loadQuestionForManage(questionId, actorId, isAdmin);
         if (exist == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "题目不存在");
+            throw BizException.of(ErrorCode.NOT_FOUND, "question not found");
         }
 
-        validateQuestion(request);
+        QuestionTypeEnum type = validateQuestion(request);
+        String chapter = normalizeAndValidateChapter(request.getChapter());
+        String standardAnswer = resolveStandardAnswerForPersistence(request, type);
 
         exist.setTitle(request.getTitle());
         exist.setQuestionType(request.getQuestionType());
         exist.setDifficulty(request.getDifficulty());
-        exist.setChapter(request.getChapter());
+        exist.setChapter(chapter);
         exist.setStem(request.getStem());
-        exist.setStandardAnswer(request.getStandardAnswer());
+        exist.setStandardAnswer(standardAnswer);
         exist.setAnswerFormat(request.getAnswerFormat());
         exist.setAnalysisText(request.getAnalysisText());
         exist.setAnalysisSource(request.getAnalysisSource());
@@ -90,19 +108,22 @@ public class QuestionServiceImpl implements QuestionService {
         replaceOptionsAndTagsAndCases(questionId, request);
     }
 
-    private void validateQuestion(QuestionUpsertRequest request) {
+    private QuestionTypeEnum validateQuestion(QuestionUpsertRequest request) {
         QuestionTypeEnum type = QuestionTypeEnum.of(request.getQuestionType());
         if (type == null) {
-            throw BizException.of(ErrorCode.PARAM_ERROR, "未知题型");
+            throw BizException.of(ErrorCode.PARAM_ERROR, "unknown question type");
+        }
+        if (!type.isEnabledNow()) {
+            throw BizException.of(ErrorCode.PARAM_ERROR, "question type is disabled");
         }
 
         if (request.getDifficulty() != null && (request.getDifficulty() < 1 || request.getDifficulty() > 5)) {
-            throw BizException.of(ErrorCode.PARAM_ERROR, "difficulty 必须在 1~5 之间");
+            throw BizException.of(ErrorCode.PARAM_ERROR, "difficulty must be in [1,5]");
         }
 
         if (type == QuestionTypeEnum.SINGLE || type == QuestionTypeEnum.MULTIPLE) {
             if (request.getOptions() == null || request.getOptions().isEmpty()) {
-                throw BizException.of(ErrorCode.PARAM_ERROR, "选择题必须提供 options");
+                throw BizException.of(ErrorCode.PARAM_ERROR, "options are required for choice questions");
             }
 
             Set<String> seenLabels = new HashSet<>();
@@ -112,32 +133,45 @@ public class QuestionServiceImpl implements QuestionService {
                 }
                 String label = option.getOptionLabel().trim().toUpperCase();
                 if (!seenLabels.add(label)) {
-                    throw BizException.of(ErrorCode.PARAM_ERROR, "选项标识不能重复");
+                    throw BizException.of(ErrorCode.PARAM_ERROR, "duplicate option label");
                 }
             }
 
             long correctCount = request.getOptions().stream()
-                    .filter(o -> o.getIsCorrect() != null && o.getIsCorrect() == 1)
+                    .filter(o -> o != null && o.getIsCorrect() != null && o.getIsCorrect() == 1)
                     .count();
             if (type == QuestionTypeEnum.SINGLE && correctCount != 1) {
-                throw BizException.of(ErrorCode.PARAM_ERROR, "单选题必须且仅有一个正确选项");
+                throw BizException.of(ErrorCode.PARAM_ERROR, "single choice must have exactly one correct option");
             }
             if (type == QuestionTypeEnum.MULTIPLE && correctCount < 1) {
-                throw BizException.of(ErrorCode.PARAM_ERROR, "多选题至少需要一个正确选项");
+                throw BizException.of(ErrorCode.PARAM_ERROR, "multiple choice needs at least one correct option");
             }
         }
 
-        if (type.isObjective() && (request.getStandardAnswer() == null || request.getStandardAnswer().isBlank())) {
-            throw BizException.of(ErrorCode.PARAM_ERROR, "客观题必须提供标准答案");
+        String normalizedStandardAnswer = resolveStandardAnswerForPersistence(request, type);
+        if (type.isObjective() && (normalizedStandardAnswer == null || normalizedStandardAnswer.isBlank())) {
+            throw BizException.of(ErrorCode.PARAM_ERROR, "objective question requires standard answer");
         }
 
-        if ((type == QuestionTypeEnum.CODE || type == QuestionTypeEnum.CODE_READING) && request.getCases() != null) {
+        if (type == QuestionTypeEnum.CODE && request.getCases() != null) {
             for (QuestionCaseDTO c : request.getCases()) {
                 if (c != null && c.getCaseScore() != null && c.getCaseScore() < 0) {
-                    throw BizException.of(ErrorCode.PARAM_ERROR, "caseScore 不能为负数");
+                    throw BizException.of(ErrorCode.PARAM_ERROR, "caseScore cannot be negative");
                 }
             }
         }
+        return type;
+    }
+
+    private String normalizeAndValidateChapter(String chapter) {
+        if (chapter == null || chapter.isBlank()) {
+            return null;
+        }
+        String normalized = chapter.trim();
+        if (!ALLOWED_CHAPTERS.contains(normalized)) {
+            throw BizException.of(ErrorCode.PARAM_ERROR, "invalid chapter: " + normalized);
+        }
+        return normalized;
     }
 
     private void replaceOptionsAndTagsAndCases(Long questionId, QuestionUpsertRequest request) {
@@ -180,10 +214,10 @@ public class QuestionServiceImpl implements QuestionService {
     }
 
     @Override
-    public void delete(Long questionId) {
-        QbQuestion exist = questionMapper.selectById(questionId);
+    public void delete(Long questionId, Long actorId, boolean isAdmin) {
+        QbQuestion exist = loadQuestionForManage(questionId, actorId, isAdmin);
         if (exist == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "题目不存在");
+            throw BizException.of(ErrorCode.NOT_FOUND, "question not found");
         }
 
         questionMapper.softDelete(questionId);
@@ -193,10 +227,10 @@ public class QuestionServiceImpl implements QuestionService {
     }
 
     @Override
-    public QuestionDetailVO detail(Long questionId) {
-        QbQuestion q = questionMapper.selectById(questionId);
+    public QuestionDetailVO detail(Long questionId, Long actorId, boolean isAdmin) {
+        QbQuestion q = loadQuestionForManage(questionId, actorId, isAdmin);
         if (q == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "题目不存在");
+            throw BizException.of(ErrorCode.NOT_FOUND, "question not found");
         }
 
         QuestionDetailVO vo = new QuestionDetailVO();
@@ -230,6 +264,7 @@ public class QuestionServiceImpl implements QuestionService {
         vo.setOptions(optVos);
 
         vo.setTagIds(questionTagMapper.selectTagIdsByQuestionId(questionId));
+        vo.setTagNames(questionTagMapper.selectTagNamesByQuestionId(questionId));
 
         List<QbQuestionCase> cases = caseMapper.selectByQuestionId(questionId);
         List<QuestionDetailVO.QuestionCaseVO> caseVos = new ArrayList<>();
@@ -261,22 +296,23 @@ public class QuestionServiceImpl implements QuestionService {
         for (QbQuestion q : rows) {
             QuestionListItemVO vo = new QuestionListItemVO();
             vo.setId(q.getId());
-            vo.setTitle(q.getTitle());
+            vo.setTitle(TextRepairUtil.repairGbkUtf8Mojibake(q.getTitle()));
             vo.setQuestionType(q.getQuestionType());
             vo.setDifficulty(q.getDifficulty());
-            vo.setChapter(q.getChapter());
+            vo.setChapter(TextRepairUtil.repairGbkUtf8Mojibake(q.getChapter()));
             vo.setStatus(q.getStatus());
             vo.setCreatedBy(q.getCreatedBy());
             vo.setUpdatedAt(q.getUpdatedAt());
             vo.setTagIds(questionTagMapper.selectTagIdsByQuestionId(q.getId()));
+            vo.setTagNames(questionTagMapper.selectTagNamesByQuestionId(q.getId()));
             list.add(vo);
         }
         return PageResponse.of(safePage, safeSize, total, list);
     }
 
     @Override
-    public List<QbQuestionCase> listCases(Long questionId) {
-        QbQuestion q = questionMapper.selectById(questionId);
+    public List<QbQuestionCase> listCases(Long questionId, Long actorId, boolean isAdmin) {
+        QbQuestion q = loadQuestionForManage(questionId, actorId, isAdmin);
         if (q == null) {
             throw BizException.of(ErrorCode.NOT_FOUND, "question not found");
         }
@@ -285,8 +321,8 @@ public class QuestionServiceImpl implements QuestionService {
 
     @Override
     @Transactional
-    public Long upsertCase(Long questionId, QuestionCaseUpsertRequest request) {
-        QbQuestion q = questionMapper.selectById(questionId);
+    public Long upsertCase(Long questionId, QuestionCaseUpsertRequest request, Long actorId, boolean isAdmin) {
+        QbQuestion q = loadQuestionForManage(questionId, actorId, isAdmin);
         if (q == null) {
             throw BizException.of(ErrorCode.NOT_FOUND, "question not found");
         }
@@ -314,41 +350,58 @@ public class QuestionServiceImpl implements QuestionService {
 
     @Override
     @Transactional
-    public void deleteCase(Long caseId) {
+    public void deleteCase(Long caseId, Long actorId, boolean isAdmin) {
         QbQuestionCase existed = caseMapper.selectById(caseId);
         if (existed == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "question case not found");
+            throw BizException.of(ErrorCode.NOT_FOUND, "question not found");
         }
+        loadQuestionForManage(existed.getQuestionId(), actorId, isAdmin);
         caseMapper.deleteById(caseId);
     }
 
     @Override
-    public void publish(Long questionId) {
-        QbQuestion q = questionMapper.selectById(questionId);
+    public void publish(Long questionId, Long actorId, boolean isAdmin) {
+        QbQuestion q = loadQuestionForManage(questionId, actorId, isAdmin);
         if (q == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "题目不存在");
+            throw BizException.of(ErrorCode.NOT_FOUND, "question not found");
+        }
+
+        QuestionTypeEnum type = QuestionTypeEnum.of(q.getQuestionType() == null ? -1 : q.getQuestionType());
+        if (type == null || !type.isEnabledNow()) {
+            throw BizException.of(ErrorCode.PARAM_ERROR, "question type is disabled");
+        }
+
+        if (type.isObjective() && (q.getStandardAnswer() == null || q.getStandardAnswer().isBlank())) {
+            if (type == QuestionTypeEnum.SINGLE || type == QuestionTypeEnum.MULTIPLE) {
+                String autoAnswer = deriveStandardAnswerFromEntities(optionMapper.selectByQuestionId(questionId), type);
+                if (autoAnswer == null || autoAnswer.isBlank()) {
+                    throw BizException.of(ErrorCode.PARAM_ERROR, "objective question requires correct options");
+                }
+                q.setStandardAnswer(autoAnswer);
+                questionMapper.update(q);
+            } else {
+                throw BizException.of(ErrorCode.PARAM_ERROR, "objective question requires standard answer");
+            }
         }
         questionMapper.publish(questionId);
     }
 
     @Override
     @Transactional
-    public Long generateAnalysisByLlm(Long questionId) {
-        QbQuestion q = questionMapper.selectById(questionId);
+    public Long generateAnalysisByLlm(Long questionId, Long actorId, boolean isAdmin) {
+        QbQuestion q = loadQuestionForManage(questionId, actorId, isAdmin);
         if (q == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "题目不存在");
+            throw BizException.of(ErrorCode.NOT_FOUND, "question not found");
         }
 
-        String prompt = "请为下面题目生成详细解析（中文），输出结构如下：\n"
-                + "1) 考点\n2) 解题思路\n3) 参考答案（如已有标准答案请保持一致）\n4) 易错点\n\n"
-                + "题目标题：" + q.getTitle() + "\n"
-                + "题干：" + q.getStem() + "\n"
-                + (q.getStandardAnswer() == null ? "" : ("标准答案：" + q.getStandardAnswer() + "\n"));
-
+        String prompt = "Please generate a detailed explanation in Chinese for this question.\\n"
+                + "Output structure:\\n1) Key points\\n2) Solution idea\\n3) Reference approach\\n4) Common mistakes\\n\\n"
+                + "Question title: " + q.getTitle() + "\\n"
+                + "Stem: " + q.getStem() + "\\n";
         var call = llmService.chatCompletion(1, questionId, prompt);
         String content = llmService.extractContent(call.getResponseText());
         if (content == null || content.isBlank()) {
-            throw BizException.of(ErrorCode.LLM_ERROR, "LLM未返回有效内容");
+            throw BizException.of(ErrorCode.LLM_ERROR, "LLM returned empty content");
         }
 
         q.setAnalysisText(content);
@@ -356,5 +409,85 @@ public class QuestionServiceImpl implements QuestionService {
         q.setAnalysisLlmCallId(call.getId());
         questionMapper.update(q);
         return call.getId();
+    }
+
+    private String resolveStandardAnswerForPersistence(QuestionUpsertRequest request, QuestionTypeEnum type) {
+        String manual = trimToNull(request.getStandardAnswer());
+        if (type == QuestionTypeEnum.SINGLE || type == QuestionTypeEnum.MULTIPLE) {
+            String derived = deriveStandardAnswerFromDtos(request.getOptions(), type);
+            return derived == null ? manual : derived;
+        }
+        return manual;
+    }
+
+    private String deriveStandardAnswerFromDtos(List<QuestionOptionDTO> options, QuestionTypeEnum type) {
+        if (options == null || options.isEmpty()) {
+            return null;
+        }
+        List<String> correctLabels = options.stream()
+                .filter(Objects::nonNull)
+                .filter(o -> o.getIsCorrect() != null && o.getIsCorrect() == 1)
+                .sorted(Comparator
+                        .comparing((QuestionOptionDTO o) -> o.getSortOrder() == null ? Integer.MAX_VALUE : o.getSortOrder())
+                        .thenComparing(o -> normalizeOptionLabel(o.getOptionLabel())))
+                .map(o -> normalizeOptionLabel(o.getOptionLabel()))
+                .filter(Objects::nonNull)
+                .toList();
+        if (correctLabels.isEmpty()) {
+            return null;
+        }
+        if (type == QuestionTypeEnum.SINGLE) {
+            return correctLabels.get(0);
+        }
+        return String.join(",", correctLabels);
+    }
+
+    private String deriveStandardAnswerFromEntities(List<QbQuestionOption> options, QuestionTypeEnum type) {
+        if (options == null || options.isEmpty()) {
+            return null;
+        }
+        List<String> correctLabels = options.stream()
+                .filter(Objects::nonNull)
+                .filter(o -> o.getIsCorrect() != null && o.getIsCorrect() == 1)
+                .sorted(Comparator
+                        .comparing((QbQuestionOption o) -> o.getSortOrder() == null ? Integer.MAX_VALUE : o.getSortOrder())
+                        .thenComparing(o -> normalizeOptionLabel(o.getOptionLabel())))
+                .map(o -> normalizeOptionLabel(o.getOptionLabel()))
+                .filter(Objects::nonNull)
+                .toList();
+        if (correctLabels.isEmpty()) {
+            return null;
+        }
+        if (type == QuestionTypeEnum.SINGLE) {
+            return correctLabels.get(0);
+        }
+        return String.join(",", correctLabels);
+    }
+
+    private String normalizeOptionLabel(String label) {
+        if (label == null) {
+            return null;
+        }
+        String normalized = label.trim().toUpperCase();
+        return normalized.isEmpty() ? null : normalized;
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private QbQuestion loadQuestionForManage(Long questionId, Long actorId, boolean isAdmin) {
+        QbQuestion q = questionMapper.selectById(questionId);
+        if (q == null) {
+            throw BizException.of(ErrorCode.NOT_FOUND, "question not found");
+        }
+        if (!isAdmin && !Objects.equals(q.getCreatedBy(), actorId)) {
+            throw BizException.of(ErrorCode.FORBIDDEN, "no permission to manage this question");
+        }
+        return q;
     }
 }

@@ -27,20 +27,25 @@ public class AssignmentController {
     @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     public ApiResponse<Long> create(@RequestBody @Valid AssignmentUpsertRequest request) {
         Long uid = SecurityContextUtil.getUserId();
-        return ApiResponse.ok(assignmentService.create(request, uid));
+        boolean isAdmin = hasRole("ROLE_ADMIN");
+        return ApiResponse.ok(assignmentService.create(request, uid, isAdmin));
     }
 
     @PutMapping("/{assignmentId}")
     @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     public ApiResponse<Void> update(@PathVariable Long assignmentId, @RequestBody @Valid AssignmentUpsertRequest request) {
-        assignmentService.update(assignmentId, request);
+        Long uid = SecurityContextUtil.getUserId();
+        boolean isAdmin = hasRole("ROLE_ADMIN");
+        assignmentService.update(assignmentId, request, uid, isAdmin);
         return ApiResponse.ok();
     }
 
     @DeleteMapping("/{assignmentId}")
     @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     public ApiResponse<Void> delete(@PathVariable Long assignmentId) {
-        assignmentService.delete(assignmentId);
+        Long uid = SecurityContextUtil.getUserId();
+        boolean isAdmin = hasRole("ROLE_ADMIN");
+        assignmentService.delete(assignmentId, uid, isAdmin);
         return ApiResponse.ok();
     }
 
@@ -66,7 +71,7 @@ public class AssignmentController {
     public ApiResponse<QbAssignment> detail(@PathVariable Long assignmentId) {
         Long uid = SecurityContextUtil.getUserId();
         if (hasRole("ROLE_ADMIN") || hasRole("ROLE_TEACHER")) {
-            return ApiResponse.ok(assignmentService.detail(assignmentId));
+            return ApiResponse.ok(assignmentService.detail(assignmentId, uid, hasRole("ROLE_ADMIN")));
         }
         return ApiResponse.ok(assignmentService.detailForStudent(assignmentId, uid));
     }
@@ -74,21 +79,27 @@ public class AssignmentController {
     @PostMapping("/{assignmentId}/publish")
     @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     public ApiResponse<Void> publish(@PathVariable Long assignmentId) {
-        assignmentService.publish(assignmentId);
+        Long uid = SecurityContextUtil.getUserId();
+        boolean isAdmin = hasRole("ROLE_ADMIN");
+        assignmentService.publish(assignmentId, uid, isAdmin);
         return ApiResponse.ok();
     }
 
     @PostMapping("/{assignmentId}/close")
     @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     public ApiResponse<Void> close(@PathVariable Long assignmentId) {
-        assignmentService.close(assignmentId);
+        Long uid = SecurityContextUtil.getUserId();
+        boolean isAdmin = hasRole("ROLE_ADMIN");
+        assignmentService.close(assignmentId, uid, isAdmin);
         return ApiResponse.ok();
     }
 
     @PutMapping("/{assignmentId}/targets")
     @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     public ApiResponse<Void> setTargets(@PathVariable Long assignmentId, @RequestBody @Valid AssignmentTargetsRequest request) {
-        assignmentService.setTargets(assignmentId, request);
+        Long uid = SecurityContextUtil.getUserId();
+        boolean isAdmin = hasRole("ROLE_ADMIN");
+        assignmentService.setTargets(assignmentId, request, uid, isAdmin);
         return ApiResponse.ok();
     }
 

@@ -39,7 +39,8 @@ public class LlmServiceImpl implements LlmService {
         call.setCallStatus(0);
         llmCallMapper.insert(call);
 
-        if (qwenProperties.getApiKey() == null || qwenProperties.getApiKey().isBlank()) {
+        String apiKey = qwenProperties.resolveApiKey();
+        if (apiKey == null || apiKey.isBlank()) {
             call.setResponseText("Qwen api-key not configured");
             call.setResponseJson("{\"error\":\"apiKey missing\"}");
             call.setCallStatus(2);
@@ -82,7 +83,7 @@ public class LlmServiceImpl implements LlmService {
             HttpRequest httpReq = HttpRequest.newBuilder()
                     .uri(URI.create(baseUrl + "/chat/completions"))
                     .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + qwenProperties.getApiKey())
+                    .header("Authorization", "Bearer " + apiKey)
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();
 

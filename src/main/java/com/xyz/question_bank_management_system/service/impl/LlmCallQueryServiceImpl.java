@@ -21,19 +21,28 @@ public class LlmCallQueryServiceImpl implements LlmCallQueryService {
     private final QbLlmCallMapper llmCallMapper;
 
     @Override
-    public PageResponse<LlmCallListItemVO> page(Integer bizType, Long bizId, long page, long size) {
+    public PageResponse<LlmCallListItemVO> page(Integer bizType, Long bizId, long page, long size, Long viewerId, boolean isAdmin) {
         long safePage = PageParamUtil.normalizePage(page);
         long safeSize = PageParamUtil.normalizeSize(size);
         long offset = PageParamUtil.offset(safePage, safeSize);
 
-        List<LlmCallListItemVO> rows = llmCallMapper.pageByFilter(bizType, bizId, offset, safeSize);
-        long total = llmCallMapper.countByFilter(bizType, bizId);
+        List<LlmCallListItemVO> rows;
+        long total;
+        if (isAdmin) {
+            rows = llmCallMapper.pageByFilter(bizType, bizId, offset, safeSize);
+            total = llmCallMapper.countByFilter(bizType, bizId);
+        } else {
+            rows = llmCallMapper.pageByFilterForTeacher(bizType, bizId, viewerId, offset, safeSize);
+            total = llmCallMapper.countByFilterForTeacher(bizType, bizId, viewerId);
+        }
         return PageResponse.of(safePage, safeSize, total, rows);
     }
 
     @Override
-    public LlmCallDetailVO detail(Long llmCallId) {
-        QbLlmCall call = llmCallMapper.selectById(llmCallId);
+    public LlmCallDetailVO detail(Long llmCallId, Long viewerId, boolean isAdmin) {
+        QbLlmCall call = isAdmin
+                ? llmCallMapper.selectById(llmCallId)
+                : llmCallMapper.selectByIdForTeacher(llmCallId, viewerId);
         if (call == null) {
             throw BizException.of(ErrorCode.NOT_FOUND, "llm call not found");
         }
