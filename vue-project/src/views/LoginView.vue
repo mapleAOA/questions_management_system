@@ -13,8 +13,8 @@ const mode = ref('login')
 const loading = ref(false)
 
 const loginForm = reactive({
-  username: 'admin',
-  password: 'admin123',
+  username: '',
+  password: '',
 })
 
 const registerForm = reactive({
@@ -24,6 +24,7 @@ const registerForm = reactive({
   email: '',
   role: 'STUDENT',
 })
+const REGISTER_PASSWORD_PATTERN = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[^A-Za-z\d])\S{8,20}$/
 
 async function handleLogin() {
   loading.value = true
@@ -40,6 +41,10 @@ async function handleLogin() {
 }
 
 async function handleRegister() {
+  if (!REGISTER_PASSWORD_PATTERN.test(registerForm.password || '')) {
+    ElMessage.warning('密码需为8-20位，且包含字母、数字和特殊字符')
+    return
+  }
   loading.value = true
   try {
     await auth.register(registerForm)
@@ -104,9 +109,10 @@ async function handleRegister() {
             type="password"
             show-password
             :prefix-icon="Lock"
-            placeholder="请输入密码"
+            placeholder="8-20位，需含字母、数字、特殊字符"
             @keyup.enter="handleRegister"
           />
+          <p class="password-hint">密码需为 8-20 位，且包含字母、数字和特殊字符</p>
         </el-form-item>
         <el-form-item label="显示名">
           <el-input v-model="registerForm.displayName" placeholder="可选" />
@@ -118,8 +124,6 @@ async function handleRegister() {
           注册
         </el-button>
       </el-form>
-
-      <p class="login-hint">默认管理员：<span class="mono">admin / admin123</span></p>
     </div>
   </div>
 </template>
@@ -190,10 +194,11 @@ async function handleRegister() {
   width: 100%;
 }
 
-.login-hint {
-  margin: 14px 0 0;
+.password-hint {
+  margin: 6px 0 0;
   font-size: 12px;
   color: #627d98;
+  line-height: 1.4;
 }
 
 @media (max-width: 768px) {

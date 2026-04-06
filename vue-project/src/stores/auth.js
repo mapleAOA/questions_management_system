@@ -93,6 +93,8 @@ export const useAuthStore = defineStore('auth', {
     async logout() {
       try {
         await authApi.logout()
+      } catch {
+        // 后端会话失效时也允许本地退出，避免卡在当前页面
       } finally {
         this.clearSession()
       }

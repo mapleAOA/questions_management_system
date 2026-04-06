@@ -1,14 +1,10 @@
 ﻿<script setup>
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { API_BASE_URL } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
-import { formatDateTime } from '@/utils/format'
 
 const router = useRouter()
 const auth = useAuthStore()
-
-const now = computed(() => formatDateTime(new Date()))
 
 const shortcuts = computed(() => {
   const all = [
@@ -42,16 +38,6 @@ const shortcuts = computed(() => {
         <div class="summary-value">{{ auth.displayName }}</div>
         <p class="muted">{{ auth.role || '-' }}</p>
       </el-card>
-      <el-card class="page-card">
-        <h3 class="card-title">后端地址</h3>
-        <div class="summary-value mono">{{ API_BASE_URL }}</div>
-        <p class="muted">默认端口 8080，可用 <code>VITE_API_BASE_URL</code> 覆盖</p>
-      </el-card>
-      <el-card class="page-card">
-        <h3 class="card-title">当前时间</h3>
-        <div class="summary-value">{{ now }}</div>
-        <p class="muted">已按后端字段格式处理日期时间</p>
-      </el-card>
     </div>
 
     <el-card class="page-card">
@@ -75,7 +61,7 @@ const shortcuts = computed(() => {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 14px;
 }
 

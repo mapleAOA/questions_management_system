@@ -14,7 +14,7 @@ const routes = [
     path: '/',
     component: AppLayout,
     children: [
-      { path: '', redirect: { name: 'dashboard' } },
+      { path: '', redirect: { name: 'login' } },
       {
         path: 'dashboard',
         name: 'dashboard',
@@ -146,9 +146,6 @@ router.beforeEach(async (to) => {
   const requiresAuth = !to.meta.public
 
   if (!requiresAuth) {
-    if (to.name === 'login' && auth.isLoggedIn) {
-      return { name: 'dashboard' }
-    }
     return true
   }
 

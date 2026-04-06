@@ -219,6 +219,9 @@ onMounted(async () => {
       </el-form-item>
       <el-form-item label="总分">
         <el-input-number v-model="practiceForm.totalScore" :min="10" :step="10" />
+        <span style="margin-left: 12px; color: #627d98; font-size: 13px;">
+          编程题按 20 分计，其余练习题按 10 分计
+        </span>
       </el-form-item>
       <el-form-item label="章节">
         <el-select v-model="practiceForm.chapters" multiple collapse-tags style="width: 420px" placeholder="可选">

@@ -34,6 +34,7 @@ const query = reactive({
 const dialogVisible = ref(false)
 const saveLoading = ref(false)
 const editingId = ref(null)
+const llmLoadingId = ref(null)
 
 const isAdmin = computed(() => auth.hasAnyRole(['ADMIN']))
 const isTeacher = computed(() => auth.hasAnyRole(['TEACHER']))
@@ -255,12 +256,21 @@ async function publishQuestion(questionId) {
 }
 
 async function llmAnalysis(questionId) {
+  llmLoadingId.value = questionId
+  ElMessage.info('已提交大模型解析请求，正在处理...')
   try {
     const llmCallId = await questionApi.generateLlmAnalysis(questionId)
     ElMessage.success(`大模型解析已生成，调用编号: ${llmCallId}`)
     await loadData()
   } catch (error) {
+    if (error?.code === 'TIMEOUT') {
+      ElMessage.success('大模型解析请求已提交，后台仍在生成，请稍后刷新列表查看结果')
+      await loadData()
+      return
+    }
     ElMessage.error(error.message || '生成失败')
+  } finally {
+    llmLoadingId.value = null
   }
 }
 
@@ -367,7 +377,15 @@ onMounted(async () => {
         <template #default="{ row }">
           <el-button v-if="canManageRow(row)" link type="primary" @click="openEdit(row.id)">编辑</el-button>
           <el-button v-if="canManageRow(row)" link type="success" @click="publishQuestion(row.id)">发布</el-button>
-          <el-button v-if="canManageRow(row)" link type="warning" @click="llmAnalysis(row.id)">大模型解析</el-button>
+          <el-button
+            v-if="canManageRow(row)"
+            link
+            type="warning"
+            :loading="llmLoadingId === row.id"
+            @click="llmAnalysis(row.id)"
+          >
+            大模型解析
+          </el-button>
           <el-button v-if="canManageRow(row)" link type="danger" @click="removeQuestion(row.id)">删除</el-button>
           <span v-if="!canManageRow(row)" class="muted">仅可用于组卷</span>
         </template>
@@ -463,7 +481,7 @@ onMounted(async () => {
         title="单选/多选题会根据“正确选项”自动生成标准答案"
       />
       <el-form-item label="解析">
-        <el-input v-model="form.analysisText" type="textarea" :rows="3" />
+        <el-input v-model="form.analysisText" type="textarea" :rows="8" class="analysis-input" />
       </el-form-item>
 
       <template v-if="showOptions">
@@ -565,5 +583,11 @@ onMounted(async () => {
 .sub-title-row h4 {
   margin: 0;
   color: #334e68;
+}
+
+.analysis-input :deep(.el-textarea__inner) {
+  min-height: 220px;
+  resize: vertical;
+  line-height: 1.7;
 }
 </style>

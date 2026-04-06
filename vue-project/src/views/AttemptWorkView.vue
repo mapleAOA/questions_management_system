@@ -1,5 +1,5 @@
 ﻿<script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { answerApi, attemptApi } from '@/api/services'
@@ -17,6 +17,7 @@ const currentIndex = ref(0)
 
 const answerInput = ref('')
 const multiAnswer = ref([])
+const syncingEditor = ref(false)
 
 const currentQuestion = computed(() => questions.value[currentIndex.value] || null)
 const currentSnapshot = computed(() => parseJsonSafe(currentQuestion.value?.snapshotJson, {}) || {})
@@ -34,6 +35,7 @@ const isSingleChoice = computed(() => [1, 3].includes(currentQuestionType.value)
 const isMultiChoice = computed(() => currentQuestionType.value === 2)
 
 function syncEditorFromCurrent() {
+  syncingEditor.value = true
   const value = currentQuestion.value?.answerContent || ''
   if (isMultiChoice.value) {
     multiAnswer.value = value
@@ -45,11 +47,33 @@ function syncEditorFromCurrent() {
     answerInput.value = value
     multiAnswer.value = []
   }
+  nextTick(() => {
+    syncingEditor.value = false
+  })
+}
+
+function syncCurrentQuestionFromEditor() {
+  if (syncingEditor.value || !currentQuestion.value) {
+    return
+  }
+  currentQuestion.value.answerContent = buildAnswerContent()
 }
 
 watch(currentQuestion, () => {
   syncEditorFromCurrent()
 })
+
+watch(answerInput, () => {
+  syncCurrentQuestionFromEditor()
+})
+
+watch(
+  multiAnswer,
+  () => {
+    syncCurrentQuestionFromEditor()
+  },
+  { deep: true },
+)
 
 function answerStatusText(code) {
   if (code === 2) return '已提交'
@@ -83,42 +107,35 @@ async function loadQuestions() {
 
 function jumpTo(index) {
   if (index < 0 || index >= questions.value.length) return
+  syncCurrentQuestionFromEditor()
   currentIndex.value = index
 }
 
-async function saveCurrentDraft() {
-  if (!currentQuestion.value?.answerId) {
-    ElMessage.warning('当前题目未生成答案记录')
+async function saveAllDrafts(options = {}) {
+  syncCurrentQuestionFromEditor()
+  const draftQuestions = questions.value.filter((item) => item?.answerId)
+  if (!draftQuestions.length) {
+    if (!options.silent) {
+      ElMessage.warning('当前作答没有可保存的题目')
+    }
     return
   }
   actionLoading.value = true
   try {
-    const content = buildAnswerContent()
-    await answerApi.saveDraft(currentQuestion.value.answerId, content)
-    currentQuestion.value.answerContent = content
-    currentQuestion.value.answerStatus = 1
-    ElMessage.success('草稿已保存')
+    await Promise.all(
+      draftQuestions.map((item) => answerApi.saveDraft(item.answerId, item.answerContent || '')),
+    )
+    draftQuestions.forEach((item) => {
+      item.answerStatus = 1
+    })
+    if (!options.silent) {
+      ElMessage.success('草稿已保存')
+    }
   } catch (error) {
-    ElMessage.error(error.message || '保存失败')
-  } finally {
-    actionLoading.value = false
-  }
-}
-
-async function submitCurrentAnswer() {
-  if (!currentQuestion.value?.answerId) {
-    ElMessage.warning('当前题目未生成答案记录')
-    return
-  }
-  actionLoading.value = true
-  try {
-    const content = buildAnswerContent()
-    await answerApi.submit(currentQuestion.value.answerId, content)
-    currentQuestion.value.answerContent = content
-    currentQuestion.value.answerStatus = 2
-    ElMessage.success('本题已提交')
-  } catch (error) {
-    ElMessage.error(error.message || '提交失败')
+    if (!options.silent) {
+      ElMessage.error(error.message || '保存失败')
+    }
+    throw error
   } finally {
     actionLoading.value = false
   }
@@ -127,11 +144,17 @@ async function submitCurrentAnswer() {
 async function submitWholeAttempt() {
   try {
     await ElMessageBox.confirm('确认提交整份作答？提交后不可修改。', '提交确认', { type: 'warning' })
+    await saveAllDrafts({ silent: true })
     actionLoading.value = true
     await attemptApi.submit(attemptId.value)
-    ElMessage.success('整份作答已提交')
-    router.replace(`/attempts/${attemptId.value}/result`)
+    ElMessage.success('整份作答提交成功，请等待系统批改后到作答记录查看成绩')
+    router.replace('/attempts/history')
   } catch (error) {
+    if (error?.code === 'TIMEOUT') {
+      ElMessage.success('作答已提交，系统正在批改中，请稍后到作答记录查看成绩')
+      router.replace('/attempts/history')
+      return
+    }
     if (error !== 'cancel') {
       ElMessage.error(error.message || '提交失败')
     }
@@ -172,7 +195,6 @@ onMounted(loadQuestions)
             分值 {{ currentQuestion.score || 0 }}
           </el-tag>
         </h3>
-        <p class="muted" v-if="currentSnapshot.title">标题：{{ currentSnapshot.title }}</p>
         <p class="question-stem">{{ currentSnapshot.stem || '-' }}</p>
 
         <template v-if="isSingleChoice">
@@ -227,9 +249,8 @@ onMounted(loadQuestions)
         <div class="attempt-actions">
           <el-button @click="jumpTo(currentIndex - 1)" :disabled="currentIndex === 0">上一题</el-button>
           <el-button @click="jumpTo(currentIndex + 1)" :disabled="currentIndex >= questions.length - 1">下一题</el-button>
-          <el-button type="info" :loading="actionLoading" @click="saveCurrentDraft">保存草稿</el-button>
-          <el-button type="primary" :loading="actionLoading" @click="submitCurrentAnswer">提交本题</el-button>
-          <el-button type="danger" :loading="actionLoading" @click="submitWholeAttempt">提交整份作答</el-button>
+          <el-button type="info" :loading="actionLoading" @click="saveAllDrafts">保存草稿</el-button>
+          <el-button type="success" :loading="actionLoading" @click="submitWholeAttempt">提交</el-button>
         </div>
       </template>
     </el-card>

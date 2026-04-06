@@ -29,6 +29,10 @@ http.interceptors.request.use((config) => {
 http.interceptors.response.use(
   (response) => response,
   (error) => {
+    const isTimeout = error?.code === 'ECONNABORTED' || /timeout/i.test(String(error?.message || ''))
+    if (isTimeout) {
+      throw new ApiError('请求超时，后端可能仍在处理中，请稍后刷新查看结果', 'TIMEOUT', 0)
+    }
     if (!error.response) {
       throw new ApiError('网络错误，请检查后端服务是否启动', 'NETWORK_ERROR', 0)
     }

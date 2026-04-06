@@ -115,6 +115,7 @@ export const questionApi = {
     return request({
       url: `/api/questions/${questionId}/analysis/llm`,
       method: 'post',
+      timeout: 8000,
     })
   },
 }
@@ -157,6 +158,13 @@ export const paperApi = {
     return request({
       url: `/api/papers/${paperId}/questions`,
       method: 'post',
+      data: payload,
+    })
+  },
+  batchUpdateQuestions(paperId, payload) {
+    return request({
+      url: `/api/papers/${paperId}/questions/batch`,
+      method: 'put',
       data: payload,
     })
   },
@@ -308,6 +316,7 @@ export const attemptApi = {
     return request({
       url: `/api/attempts/${attemptId}/submit`,
       method: 'post',
+      timeout: 8000,
     })
   },
   result(attemptId) {
