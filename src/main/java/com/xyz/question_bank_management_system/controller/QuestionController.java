@@ -4,10 +4,8 @@ import com.xyz.question_bank_management_system.common.ApiResponse;
 import com.xyz.question_bank_management_system.common.PageResponse;
 import com.xyz.question_bank_management_system.common.enums.QuestionTypeEnum;
 import com.xyz.question_bank_management_system.common.enums.QuestionStatusEnum;
-import com.xyz.question_bank_management_system.dto.QuestionCaseUpsertRequest;
 import com.xyz.question_bank_management_system.dto.QuestionSearchQuery;
 import com.xyz.question_bank_management_system.dto.QuestionUpsertRequest;
-import com.xyz.question_bank_management_system.entity.QbQuestionCase;
 import com.xyz.question_bank_management_system.exception.BizException;
 import com.xyz.question_bank_management_system.exception.ErrorCode;
 import com.xyz.question_bank_management_system.mapper.QbClassMemberMapper;
@@ -23,9 +21,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
@@ -136,35 +132,6 @@ public class QuestionController {
         Long uid = SecurityContextUtil.getUserId();
         boolean isAdmin = hasRole("ROLE_ADMIN");
         return ApiResponse.ok(questionService.generateAnalysisByLlm(questionId, uid, isAdmin));
-    }
-
-    @GetMapping("/{questionId}/cases")
-    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
-    public ApiResponse<List<QbQuestionCase>> listCases(@PathVariable Long questionId) {
-        Long uid = SecurityContextUtil.getUserId();
-        boolean isAdmin = hasRole("ROLE_ADMIN");
-        return ApiResponse.ok(questionService.listCases(questionId, uid, isAdmin));
-    }
-
-    @PostMapping("/{questionId}/cases")
-    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
-    public ApiResponse<Map<String, Long>> upsertCase(@PathVariable Long questionId,
-                                                      @RequestBody @Valid QuestionCaseUpsertRequest request) {
-        Long uid = SecurityContextUtil.getUserId();
-        boolean isAdmin = hasRole("ROLE_ADMIN");
-        Long caseId = questionService.upsertCase(questionId, request, uid, isAdmin);
-        Map<String, Long> data = new HashMap<>();
-        data.put("caseId", caseId);
-        return ApiResponse.ok(data);
-    }
-
-    @DeleteMapping("/cases/{caseId}")
-    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
-    public ApiResponse<Void> deleteCase(@PathVariable Long caseId) {
-        Long uid = SecurityContextUtil.getUserId();
-        boolean isAdmin = hasRole("ROLE_ADMIN");
-        questionService.deleteCase(caseId, uid, isAdmin);
-        return ApiResponse.ok();
     }
 
     private boolean hasAnyRole(String... roles) {

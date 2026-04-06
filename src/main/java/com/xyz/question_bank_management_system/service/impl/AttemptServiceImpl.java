@@ -13,21 +13,44 @@ import com.xyz.question_bank_management_system.exception.ErrorCode;
 import com.xyz.question_bank_management_system.mapper.*;
 import com.xyz.question_bank_management_system.service.AttemptService;
 import com.xyz.question_bank_management_system.service.LlmService;
+import com.xyz.question_bank_management_system.service.UserAbilityService;
 import com.xyz.question_bank_management_system.util.HashUtil;
 import com.xyz.question_bank_management_system.util.PageParamUtil;
 import com.xyz.question_bank_management_system.util.TextRepairUtil;
 import com.xyz.question_bank_management_system.vo.*;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AttemptServiceImpl implements AttemptService {
+
+    private static final double ADAPTIVE_TARGET_SUCCESS_RATE = 0.75;
+    private static final double ADAPTIVE_DIFFICULTY_STEP = 0.70;
+    private static final int ADAPTIVE_MIN_DIFFICULTY = 1;
+    private static final int ADAPTIVE_MAX_DIFFICULTY = 5;
+    private static final int ADAPTIVE_MIN_ABILITY = 0;
+    private static final int ADAPTIVE_MAX_ABILITY = 100;
+    private static final double ADAPTIVE_MIN_SIGMOID = 0.01;
+    private static final double ADAPTIVE_MAX_SIGMOID = 0.99;
+    private static final double ADAPTIVE_MATCH_WEIGHT = 0.62;
+    private static final double ADAPTIVE_WEAK_TAG_WEIGHT = 0.20;
+    private static final double ADAPTIVE_WRONG_WEIGHT = 0.14;
+    private static final double ADAPTIVE_NOVELTY_WEIGHT = 0.06;
+    private static final double ADAPTIVE_RANDOM_JITTER = 0.02;
+    private static final int PRACTICE_DEFAULT_SCORE = 10;
+    private static final int PRACTICE_PROGRAMMING_SCORE = 20;
 
     private final QbAssignmentMapper assignmentMapper;
     private final QbAssignmentTargetMapper targetMapper;
@@ -48,10 +71,18 @@ public class AttemptServiceImpl implements AttemptService {
     private final QbWrongQuestionMapper wrongQuestionMapper;
     private final QbTagMasteryMapper tagMasteryMapper;
     private final QbUserAbilityMapper userAbilityMapper;
+    private final UserAbilityService userAbilityService;
 
     private final LlmService llmService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
+
+    @Autowired
+    @Qualifier("attemptGradingExecutor")
+    private TaskExecutor attemptGradingExecutor;
 
     @Override
     @Transactional
@@ -149,7 +180,7 @@ public class AttemptServiceImpl implements AttemptService {
     @Override
     @Transactional
     public AttemptStartVO startPracticeAttempt(PracticeStartRequest request, Long userId) {
-        normalizePracticeMode(request.getMode());
+        String mode = normalizePracticeMode(request.getMode());
         int totalScore = normalizePracticeTotalScore(request.getTotalScore());
 
         List<Long> tagIds = normalizeLongList(request.getScope() == null ? null : request.getScope().getTagIds());
@@ -157,22 +188,34 @@ public class AttemptServiceImpl implements AttemptService {
         List<Integer> questionTypes = normalizeQuestionTypes(request.getScope() == null ? null : request.getScope().getQuestionTypes());
         List<Long> questionIds = normalizeLongList(request.getScope() == null ? null : request.getScope().getQuestionIds());
         List<Long> visibleTeacherIds = resolveVisibleTeacherIds(userId);
+        int candidateQuestionLimit = estimatePracticeQuestionLimit(totalScore);
 
         List<QbQuestion> selected;
         if (questionIds != null && !questionIds.isEmpty()) {
             selected = selectPracticeQuestionsByIds(questionIds, visibleTeacherIds);
+        } else if ("adaptive".equals(mode)) {
+            List<QbQuestion> rankedCandidates = selectAdaptivePracticeQuestions(
+                    userId,
+                    candidateQuestionLimit,
+                    tagIds,
+                    chapters,
+                    questionTypes,
+                    visibleTeacherIds
+            );
+            selected = pickPracticeQuestionsByScore(rankedCandidates, totalScore);
         } else {
-            int questionCount = Math.max(1, Math.min(50, totalScore / 10));
-            long candidateLimit = Math.max(questionCount * 5L, 50L);
+            long candidateLimit = Math.max(candidateQuestionLimit * 5L, 50L);
             List<QbQuestion> candidates = questionMapper.searchForPractice(tagIds, chapters, questionTypes, visibleTeacherIds, candidateLimit);
             if (candidates == null || candidates.isEmpty()) {
                 throw BizException.of(ErrorCode.BIZ_ERROR, "no published questions match current scope");
             }
             Collections.shuffle(candidates);
-            int picked = Math.min(questionCount, candidates.size());
-            selected = candidates.subList(0, picked);
+            selected = pickPracticeQuestionsByScore(candidates, totalScore);
         }
-        int[] scores = splitScores(totalScore, selected.size());
+        if (selected == null || selected.isEmpty()) {
+            throw BizException.of(ErrorCode.BIZ_ERROR, "failed to build practice with current scope");
+        }
+        int[] scores = buildPracticeScores(selected);
 
         long usedAttempts = attemptMapper.countByUser(userId, AttemptTypeEnum.PRACTICE.getCode());
         int attemptNo = (int) usedAttempts + 1;
@@ -289,13 +332,28 @@ public class AttemptServiceImpl implements AttemptService {
     }
 
     @Override
-    @Transactional
     public void submitAttempt(Long attemptId, Long userId) {
         QbAttempt attempt = attemptMapper.selectById(attemptId);
         if (attempt == null) throw BizException.of(ErrorCode.NOT_FOUND, "作答不存在");
         if (!Objects.equals(attempt.getUserId(), userId)) throw BizException.of(ErrorCode.FORBIDDEN, "无权提交该作答");
         if (attempt.getStatus() == null || attempt.getStatus() != AttemptStatusEnum.IN_PROGRESS.getCode()) {
             throw BizException.of(ErrorCode.FORBIDDEN, "当前状态不允许提交");
+        }
+
+        if (Thread.currentThread() != null) {
+            SubmissionContext context = transactionTemplate.execute(status -> prepareAttemptSubmission(attemptId, userId));
+            if (context == null) {
+                throw BizException.of(ErrorCode.BIZ_ERROR, "failed to submit attempt");
+            }
+
+            try {
+                // Return quickly after sealing the answers; slow grading continues in the background.
+                attemptGradingExecutor.execute(() -> gradeAttemptSafely(context));
+            } catch (RuntimeException ex) {
+                log.error("Failed to dispatch async grading for attempt {}", attemptId, ex);
+                gradeAttemptSafely(context);
+            }
+            return;
         }
 
         LocalDateTime now = LocalDateTime.now();
@@ -308,13 +366,11 @@ public class AttemptServiceImpl implements AttemptService {
             byAttemptQuestionId.put(a.getAttemptQuestionId(), a);
         }
 
-        int totalPossible = 0;
         int objectiveScore = 0;
         int subjectiveScore = 0;
         int needsReview = 0;
 
         for (QbAttemptQuestion aq : aqs) {
-            totalPossible += (aq.getScore() == null ? 0 : aq.getScore());
             QbAnswer ans = byAttemptQuestionId.get(aq.getId());
             if (ans == null) continue;
 
@@ -417,10 +473,7 @@ public class AttemptServiceImpl implements AttemptService {
         upd.setNeedsReview(needsReview);
         attemptMapper.updateAfterSubmit(upd);
 
-        // ability score (very simple): 0~100
-        int ability = totalPossible <= 0 ? 0 : (int) Math.round(100.0 * totalScore / totalPossible);
-        ability = Math.max(0, Math.min(100, ability));
-        userAbilityMapper.upsert(userId, ability);
+        userAbilityService.recomputeAndPersist(userId);
     }
 
     @Override
@@ -454,6 +507,188 @@ public class AttemptServiceImpl implements AttemptService {
         }
         vo.setAnswers(list);
         return vo;
+    }
+
+    private SubmissionContext prepareAttemptSubmission(Long attemptId, Long userId) {
+        QbAttempt attempt = attemptMapper.selectById(attemptId);
+        if (attempt == null) throw BizException.of(ErrorCode.NOT_FOUND, "attempt not found");
+        if (!Objects.equals(attempt.getUserId(), userId)) throw BizException.of(ErrorCode.FORBIDDEN, "no permission to submit this attempt");
+        if (attempt.getStatus() == null || attempt.getStatus() != AttemptStatusEnum.IN_PROGRESS.getCode()) {
+            throw BizException.of(ErrorCode.FORBIDDEN, "attempt is not in progress");
+        }
+
+        LocalDateTime submittedAt = LocalDateTime.now();
+        answerMapper.submitAllByAttempt(attemptId, submittedAt);
+
+        int durationSec = 0;
+        if (attempt.getStartedAt() != null) {
+            durationSec = (int) Duration.between(attempt.getStartedAt(), submittedAt).getSeconds();
+        }
+
+        QbAttempt upd = new QbAttempt();
+        upd.setId(attemptId);
+        upd.setStatus(AttemptStatusEnum.GRADING.getCode());
+        upd.setSubmittedAt(submittedAt);
+        upd.setDurationSec(durationSec);
+        upd.setTotalScore(0);
+        upd.setObjectiveScore(0);
+        upd.setSubjectiveScore(0);
+        upd.setNeedsReview(0);
+        attemptMapper.updateAfterSubmit(upd);
+        return new SubmissionContext(attemptId, userId);
+    }
+
+    private void gradeAttemptSafely(SubmissionContext context) {
+        try {
+            gradeSubmittedAttempt(context.attemptId(), context.userId());
+        } catch (Exception e) {
+            log.error("Async grading failed for attempt {}", context.attemptId(), e);
+        }
+    }
+
+    private void gradeSubmittedAttempt(Long attemptId, Long userId) {
+        QbAttempt attempt = attemptMapper.selectById(attemptId);
+        if (attempt == null) {
+            log.warn("Attempt {} disappeared before grading started", attemptId);
+            return;
+        }
+        if (!Objects.equals(attempt.getUserId(), userId)) {
+            log.warn("Attempt {} belongs to user {}, but async grading received {}", attemptId, attempt.getUserId(), userId);
+            return;
+        }
+        if (attempt.getStatus() == null
+                || (attempt.getStatus() != AttemptStatusEnum.GRADING.getCode()
+                && attempt.getStatus() != AttemptStatusEnum.SUBMITTED.getCode())) {
+            log.warn("Skip grading attempt {} because status is {}", attemptId, attempt.getStatus());
+            return;
+        }
+
+        List<QbAttemptQuestion> aqs = attemptQuestionMapper.selectByAttemptId(attemptId);
+        List<QbAnswer> answers = answerMapper.selectByAttemptId(attemptId);
+        Map<Long, QbAnswer> byAttemptQuestionId = new HashMap<>();
+        for (QbAnswer a : answers) {
+            byAttemptQuestionId.put(a.getAttemptQuestionId(), a);
+        }
+
+        int objectiveScore = 0;
+        int subjectiveScore = 0;
+        int needsReview = 0;
+
+        for (QbAttemptQuestion aq : aqs) {
+            QbAnswer ans = byAttemptQuestionId.get(aq.getId());
+            if (ans == null) {
+                continue;
+            }
+
+            Integer questionType = aq.getQuestionType();
+            if (questionType == null) {
+                questionType = extractQuestionType(aq.getSnapshotJson());
+            }
+
+            if (isObjective(questionType)) {
+                LocalDateTime gradedAt = LocalDateTime.now();
+                String correct = extractStandardAnswer(aq.getSnapshotJson());
+                boolean ok = isObjectiveCorrect(questionType, correct, ans.getAnswerContent());
+                int score = ok ? (aq.getScore() == null ? 0 : aq.getScore()) : 0;
+
+                answerMapper.updateScoring(ans.getId(), score, score, ok ? 1 : 0, gradedAt);
+                objectiveScore += score;
+
+                QbGradingRecord gr = new QbGradingRecord();
+                gr.setAnswerId(ans.getId());
+                gr.setGradingMode(GradingModeEnum.AUTO.getCode());
+                gr.setScore(score);
+                gr.setDetailJson("{\"correct\":\"" + safeJson(correct) + "\",\"answer\":\"" + safeJson(ans.getAnswerContent()) + "\"}");
+                gr.setLlmCallId(null);
+                gr.setConfidence(1.0);
+                gr.setNeedsReview(0);
+                gr.setReviewerId(null);
+                gr.setReviewComment(null);
+                gr.setIsFinal(1);
+                gradingRecordMapper.insert(gr);
+
+                updateStats(userId, aq, ok ? 1 : 0, gradedAt);
+                if (!ok) {
+                    wrongQuestionMapper.upsertWrong(userId, aq.getQuestionId(), gradedAt);
+                }
+                continue;
+            }
+
+            int maxScore = aq.getScore() == null ? 0 : aq.getScore();
+            LocalDateTime gradedAt = LocalDateTime.now();
+            if (isAnswerBlank(ans.getAnswerContent())) {
+                answerMapper.updateScoring(ans.getId(), 0, 0, 0, gradedAt);
+                updateStats(userId, aq, 0, gradedAt);
+                wrongQuestionMapper.upsertWrong(userId, aq.getQuestionId(), gradedAt);
+
+                QbGradingRecord gr = new QbGradingRecord();
+                gr.setAnswerId(ans.getId());
+                gr.setGradingMode(GradingModeEnum.AUTO.getCode());
+                gr.setScore(0);
+                gr.setDetailJson("{\"reason\":\"empty answer\",\"comment\":\"student answer is blank, scored as 0 without llm\"}");
+                gr.setConfidence(1.0);
+                gr.setNeedsReview(0);
+                gr.setIsFinal(1);
+                gradingRecordMapper.insert(gr);
+                continue;
+            }
+
+            LlmGradeResult llm = tryLlmGrade(ans, aq, maxScore);
+
+            if (llm != null && llm.success && llm.score != null) {
+                int score = Math.max(0, Math.min(maxScore, llm.score));
+                subjectiveScore += score;
+                needsReview = needsReview | (llm.needsReview ? 1 : 0);
+
+                answerMapper.updateScoring(ans.getId(), 0, score, score == maxScore ? 1 : 0, gradedAt);
+
+                QbGradingRecord gr = new QbGradingRecord();
+                gr.setAnswerId(ans.getId());
+                gr.setGradingMode(GradingModeEnum.LLM.getCode());
+                gr.setScore(score);
+                gr.setDetailJson(llm.rawDetailJson);
+                gr.setLlmCallId(llm.llmCallId);
+                gr.setConfidence(llm.confidence);
+                gr.setNeedsReview(llm.needsReview ? 1 : 0);
+                gr.setReviewerId(null);
+                gr.setReviewComment(llm.comment);
+                gr.setIsFinal(llm.needsReview ? 0 : 1);
+                gradingRecordMapper.insert(gr);
+
+                updateStats(userId, aq, score == maxScore ? 1 : 0, gradedAt);
+                if (score < maxScore) {
+                    wrongQuestionMapper.upsertWrong(userId, aq.getQuestionId(), gradedAt);
+                }
+            } else {
+                needsReview = 1;
+                answerMapper.updateScoring(ans.getId(), 0, 0, 0, gradedAt);
+                updateStats(userId, aq, 0, gradedAt);
+                wrongQuestionMapper.upsertWrong(userId, aq.getQuestionId(), gradedAt);
+
+                QbGradingRecord gr = new QbGradingRecord();
+                gr.setAnswerId(ans.getId());
+                gr.setGradingMode(GradingModeEnum.MANUAL.getCode());
+                gr.setScore(0);
+                gr.setDetailJson("{\"msg\":\"need manual review\"}");
+                gr.setNeedsReview(1);
+                gr.setIsFinal(0);
+                gradingRecordMapper.insert(gr);
+            }
+        }
+
+        int totalScore = objectiveScore + subjectiveScore;
+        QbAttempt upd = new QbAttempt();
+        upd.setId(attemptId);
+        upd.setStatus(needsReview == 1 ? AttemptStatusEnum.GRADING.getCode() : AttemptStatusEnum.GRADED.getCode());
+        upd.setSubmittedAt(attempt.getSubmittedAt());
+        upd.setDurationSec(attempt.getDurationSec());
+        upd.setTotalScore(totalScore);
+        upd.setObjectiveScore(objectiveScore);
+        upd.setSubjectiveScore(subjectiveScore);
+        upd.setNeedsReview(needsReview);
+        attemptMapper.updateAfterSubmit(upd);
+
+        userAbilityService.recomputeAndPersist(userId);
     }
 
     @Override
@@ -594,6 +829,137 @@ public class AttemptServiceImpl implements AttemptService {
         return ordered;
     }
 
+    private List<QbQuestion> selectAdaptivePracticeQuestions(Long userId,
+                                                             int questionCount,
+                                                             List<Long> tagIds,
+                                                             List<String> chapters,
+                                                             List<Integer> questionTypes,
+                                                             List<Long> visibleTeacherIds) {
+        long candidateLimit = Math.min(600L, Math.max(questionCount * 8L, 80L));
+        List<QbQuestion> candidates = questionMapper.searchForPractice(tagIds, chapters, questionTypes, visibleTeacherIds, candidateLimit);
+        if (candidates == null || candidates.isEmpty()) {
+            throw BizException.of(ErrorCode.BIZ_ERROR, "no published questions match current scope");
+        }
+
+        List<Long> questionIds = candidates.stream()
+                .map(QbQuestion::getId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (questionIds.isEmpty()) {
+            throw BizException.of(ErrorCode.BIZ_ERROR, "adaptive candidate set is empty");
+        }
+
+        Map<Long, QbQuestionUserStat> statByQuestionId = new HashMap<>();
+        List<QbQuestionUserStat> statRows = questionUserStatMapper.selectByUserIdAndQuestionIds(userId, questionIds);
+        if (statRows != null) {
+            for (QbQuestionUserStat row : statRows) {
+                if (row != null && row.getQuestionId() != null) {
+                    statByQuestionId.put(row.getQuestionId(), row);
+                }
+            }
+        }
+
+        Set<Long> unresolvedWrongQuestionIds = new HashSet<>();
+        List<Long> wrongRows = wrongQuestionMapper.selectUnresolvedQuestionIds(userId, questionIds);
+        if (wrongRows != null) {
+            for (Long qid : wrongRows) {
+                if (qid != null) {
+                    unresolvedWrongQuestionIds.add(qid);
+                }
+            }
+        }
+
+        Map<Long, List<Long>> tagIdsByQuestionId = new HashMap<>();
+        List<QbQuestionTagLink> tagLinks = questionTagMapper.selectLinksByQuestionIds(questionIds);
+        if (tagLinks != null) {
+            for (QbQuestionTagLink link : tagLinks) {
+                if (link == null || link.getQuestionId() == null || link.getTagId() == null) {
+                    continue;
+                }
+                tagIdsByQuestionId.computeIfAbsent(link.getQuestionId(), k -> new ArrayList<>()).add(link.getTagId());
+            }
+        }
+
+        Map<Long, Double> masteryByTagId = new HashMap<>();
+        List<QbTagMastery> masteryRows = tagMasteryMapper.selectByUserIdAndTagType(userId, null);
+        if (masteryRows != null) {
+            for (QbTagMastery row : masteryRows) {
+                if (row == null || row.getTagId() == null || row.getMasteryValue() == null) {
+                    continue;
+                }
+                masteryByTagId.put(row.getTagId(), clamp01(row.getMasteryValue()));
+            }
+        }
+
+        QbUserAbility userAbility = userAbilityMapper.selectByUserId(userId);
+        double theta = abilityScoreToTheta(userAbility == null ? 0 : userAbility.getAbilityScore());
+
+        List<AdaptiveCandidateScore> ranked = new ArrayList<>();
+        for (QbQuestion q : candidates) {
+            if (q == null || q.getId() == null) {
+                continue;
+            }
+            Long qid = q.getId();
+
+            double beta = difficultyToBeta(q.getDifficulty());
+            double successProb = sigmoid(theta - beta);
+            double abilityMatch = 1.0 - Math.min(1.0, Math.abs(successProb - ADAPTIVE_TARGET_SUCCESS_RATE) / ADAPTIVE_TARGET_SUCCESS_RATE);
+
+            List<Long> qTagIds = tagIdsByQuestionId.get(qid);
+            double weakTagPressure = 0.0;
+            if (qTagIds != null && !qTagIds.isEmpty()) {
+                double sum = 0.0;
+                int cnt = 0;
+                for (Long tagId : qTagIds) {
+                    Double mastery = masteryByTagId.get(tagId);
+                    if (mastery == null) {
+                        continue;
+                    }
+                    sum += (1.0 - mastery);
+                    cnt++;
+                }
+                if (cnt > 0) {
+                    weakTagPressure = sum / cnt;
+                } else {
+                    // Unknown tags are treated as moderate weak points to preserve exploration.
+                    weakTagPressure = 0.35;
+                }
+            }
+
+            double wrongBoost = unresolvedWrongQuestionIds.contains(qid) ? 1.0 : 0.0;
+            QbQuestionUserStat stat = statByQuestionId.get(qid);
+            int attemptCount = stat == null ? 0 : safeNonNegative(stat.getAttemptCount());
+            double novelty = 1.0 - Math.min(1.0, attemptCount / 6.0);
+            double jitter = Math.random() * ADAPTIVE_RANDOM_JITTER;
+
+            double adaptiveScore =
+                    ADAPTIVE_MATCH_WEIGHT * abilityMatch
+                            + ADAPTIVE_WEAK_TAG_WEIGHT * weakTagPressure
+                            + ADAPTIVE_WRONG_WEIGHT * wrongBoost
+                            + ADAPTIVE_NOVELTY_WEIGHT * novelty
+                            + jitter;
+            ranked.add(new AdaptiveCandidateScore(q, adaptiveScore));
+        }
+
+        if (ranked.isEmpty()) {
+            throw BizException.of(ErrorCode.BIZ_ERROR, "adaptive candidate set is empty");
+        }
+
+        ranked.sort(
+                Comparator.comparingDouble(AdaptiveCandidateScore::adaptiveScore).reversed()
+                        .thenComparing(x -> x.question().getUpdatedAt(), Comparator.nullsLast(Comparator.reverseOrder()))
+                        .thenComparing(x -> x.question().getId(), Comparator.nullsLast(Comparator.reverseOrder()))
+        );
+
+        int picked = Math.min(questionCount, ranked.size());
+        List<QbQuestion> selected = new ArrayList<>(picked);
+        for (int i = 0; i < picked; i++) {
+            selected.add(ranked.get(i).question());
+        }
+        return selected;
+    }
+
     private List<String> normalizeStringList(List<String> values) {
         if (values == null || values.isEmpty()) {
             return null;
@@ -624,14 +990,120 @@ public class AttemptServiceImpl implements AttemptService {
         return normalized;
     }
 
-    private int[] splitScores(int totalScore, int questionCount) {
-        int[] scores = new int[questionCount];
-        int base = totalScore / questionCount;
-        int rem = totalScore % questionCount;
-        for (int i = 0; i < questionCount; i++) {
-            scores[i] = base + (i < rem ? 1 : 0);
+    private int estimatePracticeQuestionLimit(int totalScore) {
+        return Math.max(1, Math.min(50, (int) Math.ceil(totalScore / (double) PRACTICE_DEFAULT_SCORE)));
+    }
+
+    private int[] buildPracticeScores(List<QbQuestion> selected) {
+        int[] scores = new int[selected.size()];
+        for (int i = 0; i < selected.size(); i++) {
+            scores[i] = practiceScoreForQuestion(selected.get(i));
         }
         return scores;
+    }
+
+    private List<QbQuestion> pickPracticeQuestionsByScore(List<QbQuestion> orderedCandidates, int targetTotalScore) {
+        if (orderedCandidates == null || orderedCandidates.isEmpty()) {
+            return List.of();
+        }
+
+        int size = orderedCandidates.size();
+        int[] suffixDefaultCount = new int[size + 1];
+        int[] suffixProgrammingCount = new int[size + 1];
+        for (int i = size - 1; i >= 0; i--) {
+            suffixDefaultCount[i] = suffixDefaultCount[i + 1];
+            suffixProgrammingCount[i] = suffixProgrammingCount[i + 1];
+            if (isProgrammingQuestionType(orderedCandidates.get(i).getQuestionType())) {
+                suffixProgrammingCount[i]++;
+            } else {
+                suffixDefaultCount[i]++;
+            }
+        }
+
+        List<QbQuestion> selected = new ArrayList<>();
+        Set<Long> selectedIds = new HashSet<>();
+        int remaining = targetTotalScore;
+
+        for (int i = 0; i < size && remaining > 0; i++) {
+            QbQuestion question = orderedCandidates.get(i);
+            int score = practiceScoreForQuestion(question);
+            if (score > remaining) {
+                continue;
+            }
+            if (!canAssemblePracticeScore(remaining - score, suffixDefaultCount[i + 1], suffixProgrammingCount[i + 1])) {
+                continue;
+            }
+            selected.add(question);
+            if (question.getId() != null) {
+                selectedIds.add(question.getId());
+            }
+            remaining -= score;
+        }
+
+        if (remaining > 0) {
+            for (QbQuestion question : orderedCandidates) {
+                if (remaining <= 0 || selectedIds.contains(question.getId())) {
+                    continue;
+                }
+                int score = practiceScoreForQuestion(question);
+                if (score > remaining) {
+                    continue;
+                }
+                selected.add(question);
+                if (question.getId() != null) {
+                    selectedIds.add(question.getId());
+                }
+                remaining -= score;
+            }
+        }
+
+        if (remaining > 0) {
+            for (QbQuestion question : orderedCandidates) {
+                if (remaining <= 0 || selectedIds.contains(question.getId())) {
+                    continue;
+                }
+                selected.add(question);
+                if (question.getId() != null) {
+                    selectedIds.add(question.getId());
+                }
+                remaining -= practiceScoreForQuestion(question);
+            }
+        }
+        return selected;
+    }
+
+    private boolean canAssemblePracticeScore(int remainingScore, int defaultQuestionCount, int programmingQuestionCount) {
+        if (remainingScore < 0) {
+            return false;
+        }
+        if (remainingScore == 0) {
+            return true;
+        }
+        if (remainingScore % PRACTICE_DEFAULT_SCORE != 0) {
+            return false;
+        }
+        int maxProgrammingUsed = Math.min(programmingQuestionCount, remainingScore / PRACTICE_PROGRAMMING_SCORE);
+        for (int programmingUsed = maxProgrammingUsed; programmingUsed >= 0; programmingUsed--) {
+            int leftover = remainingScore - programmingUsed * PRACTICE_PROGRAMMING_SCORE;
+            if (leftover < 0) {
+                continue;
+            }
+            int defaultNeeded = leftover / PRACTICE_DEFAULT_SCORE;
+            if (defaultNeeded <= defaultQuestionCount) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private int practiceScoreForQuestion(QbQuestion question) {
+        return isProgrammingQuestionType(question == null ? null : question.getQuestionType())
+                ? PRACTICE_PROGRAMMING_SCORE
+                : PRACTICE_DEFAULT_SCORE;
+    }
+
+    private boolean isProgrammingQuestionType(Integer questionType) {
+        return Objects.equals(questionType, QuestionTypeEnum.CODE.getCode());
     }
 
     private boolean isObjective(Integer questionType) {
@@ -761,6 +1233,36 @@ public class AttemptServiceImpl implements AttemptService {
         }
     }
 
+    private double difficultyToBeta(Integer difficulty) {
+        int safeDifficulty = difficulty == null ? 3 : difficulty;
+        int d = Math.max(ADAPTIVE_MIN_DIFFICULTY, Math.min(ADAPTIVE_MAX_DIFFICULTY, safeDifficulty));
+        return (d - 3) * ADAPTIVE_DIFFICULTY_STEP;
+    }
+
+    private double abilityScoreToTheta(Integer abilityScore) {
+        int safe = abilityScore == null ? 0 : Math.max(ADAPTIVE_MIN_ABILITY, Math.min(ADAPTIVE_MAX_ABILITY, abilityScore));
+        double normalized = safe / 100.0;
+        double clipped = Math.max(ADAPTIVE_MIN_SIGMOID, Math.min(ADAPTIVE_MAX_SIGMOID, normalized));
+        return Math.log(clipped / (1.0 - clipped));
+    }
+
+    private int safeNonNegative(Integer value) {
+        return value == null ? 0 : Math.max(0, value);
+    }
+
+    private double clamp01(double value) {
+        return Math.max(0.0, Math.min(1.0, value));
+    }
+
+    private double sigmoid(double x) {
+        if (x >= 0) {
+            double z = Math.exp(-x);
+            return 1.0 / (1.0 + z);
+        }
+        double z = Math.exp(x);
+        return z / (1.0 + z);
+    }
+
     private String repairSnapshotMojibake(String snapshotJson) {
         if (snapshotJson == null || snapshotJson.isBlank()) {
             return snapshotJson;
@@ -858,6 +1360,10 @@ public class AttemptServiceImpl implements AttemptService {
         return answerContent == null ? "" : answerContent;
     }
 
+    private boolean isAnswerBlank(String answerContent) {
+        return answerContent == null || answerContent.trim().isEmpty();
+    }
+
     private LlmGradeResult tryLlmGrade(QbAnswer ans, QbAttemptQuestion aq, int maxScore) {
         // 如果没有配置apiKey，LlmServiceImpl会返回 callStatus=2，此处视为失败。
         try {
@@ -929,5 +1435,11 @@ public class AttemptServiceImpl implements AttemptService {
         boolean needsReview = true;
         String comment;
         String rawDetailJson;
+    }
+
+    private record SubmissionContext(Long attemptId, Long userId) {
+    }
+
+    private record AdaptiveCandidateScore(QbQuestion question, double adaptiveScore) {
     }
 }

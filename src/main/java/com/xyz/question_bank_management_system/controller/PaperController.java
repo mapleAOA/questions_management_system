@@ -3,6 +3,7 @@ package com.xyz.question_bank_management_system.controller;
 import com.xyz.question_bank_management_system.common.ApiResponse;
 import com.xyz.question_bank_management_system.common.PageResponse;
 import com.xyz.question_bank_management_system.dto.PaperAddQuestionRequest;
+import com.xyz.question_bank_management_system.dto.PaperQuestionBatchUpdateRequest;
 import com.xyz.question_bank_management_system.dto.PaperQuestionUpdateRequest;
 import com.xyz.question_bank_management_system.dto.PaperUpsertRequest;
 import com.xyz.question_bank_management_system.entity.QbPaper;
@@ -66,6 +67,14 @@ public class PaperController {
         Long uid = SecurityContextUtil.getUserId();
         boolean isAdmin = hasRole("ROLE_ADMIN");
         return ApiResponse.ok(paperService.addQuestion(paperId, request, uid, isAdmin));
+    }
+
+    @PutMapping("/{paperId}/questions/batch")
+    public ApiResponse<Void> batchUpdatePaperQuestions(@PathVariable Long paperId, @RequestBody @Valid PaperQuestionBatchUpdateRequest request) {
+        Long uid = SecurityContextUtil.getUserId();
+        boolean isAdmin = hasRole("ROLE_ADMIN");
+        paperService.batchUpdatePaperQuestions(paperId, request, uid, isAdmin);
+        return ApiResponse.ok();
     }
 
     @PutMapping("/questions/{paperQuestionId}")

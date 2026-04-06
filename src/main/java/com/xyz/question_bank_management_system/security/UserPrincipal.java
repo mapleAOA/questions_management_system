@@ -8,7 +8,6 @@ import org.springframework.security.core.userdetails.UserDetails;
 
 import java.util.Collection;
 import java.util.List;
-import java.util.stream.Collectors;
 
 @Getter
 @AllArgsConstructor
@@ -18,15 +17,16 @@ public class UserPrincipal implements UserDetails {
     private final String username;
     private final String password;
     private final boolean enabled;
-    private final List<String> roleCodes;
+    private final String roleCode;
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        // Spring Security 默认要求 ROLE_ 前缀
-        return roleCodes.stream()
-                .map(rc -> rc.startsWith("ROLE_") ? rc : "ROLE_" + rc)
-                .map(SimpleGrantedAuthority::new)
-                .collect(Collectors.toList());
+        String normalized = roleCode == null ? "" : roleCode.trim().toUpperCase();
+        if (normalized.isEmpty()) {
+            return List.of();
+        }
+        String authority = normalized.startsWith("ROLE_") ? normalized : "ROLE_" + normalized;
+        return List.of(new SimpleGrantedAuthority(authority));
     }
 
     @Override

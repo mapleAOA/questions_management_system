@@ -9,8 +9,6 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
-
 @Service
 @RequiredArgsConstructor
 public class UserDetailsServiceImpl implements UserDetailsService {
@@ -24,8 +22,8 @@ public class UserDetailsServiceImpl implements UserDetailsService {
         if (user == null || user.getIsDeleted() != null && user.getIsDeleted() == 1) {
             throw new UsernameNotFoundException("用户不存在");
         }
-        List<String> roles = sysRoleMapper.selectRoleCodesByUserId(user.getId());
+        String role = sysRoleMapper.selectRoleCodeByUserId(user.getId());
         boolean enabled = user.getStatus() != null && user.getStatus() == 1;
-        return new UserPrincipal(user.getId(), user.getUsername(), user.getPasswordHash(), enabled, roles);
+        return new UserPrincipal(user.getId(), user.getUsername(), user.getPasswordHash(), enabled, role);
     }
 }

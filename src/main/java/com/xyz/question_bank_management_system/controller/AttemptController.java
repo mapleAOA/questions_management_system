@@ -34,6 +34,7 @@ public class AttemptController {
         return ApiResponse.ok(attemptService.startPracticeAttempt(request, uid));
     }
 
+    //作答业
     @GetMapping("/{attemptId}/questions")
     public ApiResponse<List<AttemptQuestionVO>> questions(@PathVariable Long attemptId) {
         Long uid = SecurityContextUtil.getUserId();

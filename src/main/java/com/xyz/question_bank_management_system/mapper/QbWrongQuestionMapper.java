@@ -70,4 +70,19 @@ public interface QbWrongQuestionMapper {
                                        @Param("isResolved") Integer isResolved,
                                        @Param("offset") long offset,
                                        @Param("size") long size);
+
+    @Select({
+            "<script>",
+            "SELECT question_id",
+            "FROM qb_wrong_question",
+            "WHERE user_id = #{userId}",
+            "  AND is_resolved = 0",
+            "  AND question_id IN",
+            "  <foreach collection='questionIds' item='qid' open='(' close=')' separator=','>",
+            "    #{qid}",
+            "  </foreach>",
+            "</script>"
+    })
+    List<Long> selectUnresolvedQuestionIds(@Param("userId") Long userId,
+                                           @Param("questionIds") List<Long> questionIds);
 }

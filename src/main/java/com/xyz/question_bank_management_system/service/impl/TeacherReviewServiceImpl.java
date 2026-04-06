@@ -3,8 +3,10 @@ package com.xyz.question_bank_management_system.service.impl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xyz.question_bank_management_system.common.PageResponse;
+import com.xyz.question_bank_management_system.common.enums.AttemptStatusEnum;
 import com.xyz.question_bank_management_system.entity.QbAnswer;
 import com.xyz.question_bank_management_system.entity.QbAssignment;
+import com.xyz.question_bank_management_system.entity.QbAttempt;
 import com.xyz.question_bank_management_system.entity.QbAttemptQuestion;
 import com.xyz.question_bank_management_system.entity.QbGradingRecord;
 import com.xyz.question_bank_management_system.entity.QbLlmCall;
@@ -12,6 +14,7 @@ import com.xyz.question_bank_management_system.entity.SysUser;
 import com.xyz.question_bank_management_system.exception.BizException;
 import com.xyz.question_bank_management_system.exception.ErrorCode;
 import com.xyz.question_bank_management_system.mapper.QbAnswerMapper;
+import com.xyz.question_bank_management_system.mapper.QbAppealMapper;
 import com.xyz.question_bank_management_system.mapper.QbAssignmentMapper;
 import com.xyz.question_bank_management_system.mapper.QbAttemptMapper;
 import com.xyz.question_bank_management_system.mapper.QbAttemptQuestionMapper;
@@ -20,6 +23,7 @@ import com.xyz.question_bank_management_system.mapper.QbLlmCallMapper;
 import com.xyz.question_bank_management_system.mapper.SysUserMapper;
 import com.xyz.question_bank_management_system.service.LlmService;
 import com.xyz.question_bank_management_system.service.TeacherReviewService;
+import com.xyz.question_bank_management_system.service.UserAbilityService;
 import com.xyz.question_bank_management_system.util.PageParamUtil;
 import com.xyz.question_bank_management_system.vo.TeacherAnswerEvidenceVO;
 import com.xyz.question_bank_management_system.vo.TeacherAssignmentScoreItemVO;
@@ -37,6 +41,7 @@ import java.util.List;
 public class TeacherReviewServiceImpl implements TeacherReviewService {
 
     private final QbAnswerMapper answerMapper;
+    private final QbAppealMapper appealMapper;
     private final QbAssignmentMapper assignmentMapper;
     private final QbAttemptMapper attemptMapper;
     private final QbAttemptQuestionMapper attemptQuestionMapper;
@@ -44,6 +49,7 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
     private final QbLlmCallMapper llmCallMapper;
     private final SysUserMapper sysUserMapper;
     private final LlmService llmService;
+    private final UserAbilityService userAbilityService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
@@ -128,6 +134,7 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
             throw BizException.of(ErrorCode.PARAM_ERROR, "score must be between 0 and " + maxScore);
         }
 
+        int previousScore = answer.getFinalScore() == null ? 0 : answer.getFinalScore();
         int safeScore = applyScoreAndDelta(answer, aq, score);
 
         QbGradingRecord record = new QbGradingRecord();
@@ -140,6 +147,11 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
         record.setReviewComment(comment);
         record.setIsFinal(1);
         gradingRecordMapper.insert(record);
+
+        if (safeScore != previousScore) {
+            userAbilityService.recomputeAndPersist(answer.getUserId());
+        }
+        refreshAttemptReviewState(answer.getAttemptId());
     }
 
     @Override
@@ -158,6 +170,7 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
         String prompt = buildLlmRetryPrompt(answer, aq, modelName, temperature);
 
         List<Long> llmCallIds = new ArrayList<>();
+        boolean abilityNeedsRefresh = false;
         for (int i = 0; i < safeTimes; i++) {
             QbLlmCall call = llmService.chatCompletion(2, answerId, prompt);
             if (call != null && call.getId() != null) {
@@ -170,6 +183,7 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
             if (parsed == null || parsed.score == null) {
                 continue;
             }
+            int previousScore = answer.getFinalScore() == null ? 0 : answer.getFinalScore();
             int finalScore = applyScoreAndDelta(answer, aq, parsed.score);
             QbGradingRecord record = new QbGradingRecord();
             record.setAnswerId(answerId);
@@ -182,7 +196,14 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
             record.setReviewComment(parsed.comment);
             record.setIsFinal(parsed.needsReview ? 0 : 1);
             gradingRecordMapper.insert(record);
+            if (finalScore != previousScore) {
+                abilityNeedsRefresh = true;
+            }
         }
+        if (abilityNeedsRefresh) {
+            userAbilityService.recomputeAndPersist(answer.getUserId());
+        }
+        refreshAttemptReviewState(answer.getAttemptId());
         return llmCallIds;
     }
 
@@ -249,6 +270,22 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
         }
         answer.setFinalScore(safeScore);
         return safeScore;
+    }
+
+    private void refreshAttemptReviewState(Long attemptId) {
+        if (attemptId == null) {
+            return;
+        }
+        QbAttempt attempt = attemptMapper.selectById(attemptId);
+        if (attempt == null) {
+            return;
+        }
+        long pendingReviewCount = answerMapper.countPendingReviewByAttemptId(attemptId);
+        long pendingAppealCount = appealMapper.countPendingByAttemptId(attemptId);
+        boolean hasPendingWork = pendingReviewCount > 0 || pendingAppealCount > 0;
+        attempt.setNeedsReview(hasPendingWork ? 1 : 0);
+        attempt.setStatus(hasPendingWork ? AttemptStatusEnum.GRADING.getCode() : AttemptStatusEnum.GRADED.getCode());
+        attemptMapper.updateAfterSubmit(attempt);
     }
 
     private ParsedLlmGrade parseLlmGradeResult(QbLlmCall call) {

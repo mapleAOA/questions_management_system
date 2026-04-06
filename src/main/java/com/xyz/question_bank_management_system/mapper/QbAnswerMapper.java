@@ -1,5 +1,6 @@
 package com.xyz.question_bank_management_system.mapper;
 
+import com.xyz.question_bank_management_system.entity.QbAbilitySample;
 import com.xyz.question_bank_management_system.entity.QbAnswer;
 import com.xyz.question_bank_management_system.vo.TeacherReviewAnswerItemVO;
 import org.apache.ibatis.annotations.*;
@@ -60,6 +61,18 @@ public interface QbAnswerMapper {
     long countTeacherReview(@Param("assignmentId") Long assignmentId, @Param("needsReview") Integer needsReview);
 
     @Select({
+            "SELECT COUNT(1)",
+            "FROM qb_answer a",
+            "LEFT JOIN qb_grading_record gr ON gr.id = (",
+            "  SELECT g2.id FROM qb_grading_record g2",
+            "  WHERE g2.answer_id = a.id ORDER BY g2.id DESC LIMIT 1",
+            ")",
+            "WHERE a.attempt_id = #{attemptId}",
+            "  AND COALESCE(gr.needs_review, 0) = 1"
+    })
+    long countPendingReviewByAttemptId(@Param("attemptId") Long attemptId);
+
+    @Select({
             "<script>",
             "SELECT a.id AS answer_id,",
             "       a.attempt_id,",
@@ -91,4 +104,20 @@ public interface QbAnswerMapper {
                                                       @Param("needsReview") Integer needsReview,
                                                       @Param("offset") long offset,
                                                       @Param("size") long size);
+
+    @Select({
+            "SELECT a.question_id,",
+            "       a.final_score,",
+            "       aq.score AS max_score,",
+            "       aq.difficulty,",
+            "       COALESCE(a.graded_at, a.answered_at, atp.submitted_at, atp.created_at) AS event_time",
+            "FROM qb_answer a",
+            "JOIN qb_attempt atp ON atp.id = a.attempt_id",
+            "JOIN qb_attempt_question aq ON aq.id = a.attempt_question_id",
+            "WHERE a.user_id = #{userId}",
+            "  AND atp.status IN (2, 3, 4)",
+            "  AND a.answer_status = 2",
+            "ORDER BY event_time ASC, a.id ASC"
+    })
+    List<QbAbilitySample> selectAbilitySamplesByUserId(@Param("userId") Long userId);
 }

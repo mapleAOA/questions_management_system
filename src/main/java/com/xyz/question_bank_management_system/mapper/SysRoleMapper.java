@@ -10,8 +10,10 @@ public interface SysRoleMapper {
 
     @Select("SELECT r.role_code FROM sys_role r \n" +
             "JOIN sys_user_role ur ON ur.role_id=r.id \n" +
-            "WHERE ur.user_id=#{userId}")
-    List<String> selectRoleCodesByUserId(@Param("userId") Long userId);
+            "WHERE ur.user_id=#{userId} \n" +
+            "ORDER BY ur.created_at DESC, r.id DESC \n" +
+            "LIMIT 1")
+    String selectRoleCodeByUserId(@Param("userId") Long userId);
 
     @Select("SELECT * FROM sys_role ORDER BY id")
     List<SysRole> selectAll();

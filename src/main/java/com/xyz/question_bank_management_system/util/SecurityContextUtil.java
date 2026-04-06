@@ -26,7 +26,10 @@ public final class SecurityContextUtil {
 
     public static List<String> currentRoles() {
         UserPrincipal p = currentPrincipal();
-        return p == null ? Collections.emptyList() : p.getRoleCodes();
+        if (p == null || p.getRoleCode() == null || p.getRoleCode().isBlank()) {
+            return Collections.emptyList();
+        }
+        return List.of(p.getRoleCode());
     }
 
     public static UserPrincipal currentPrincipal() {

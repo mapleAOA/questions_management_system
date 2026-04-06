@@ -6,9 +6,7 @@ import lombok.NoArgsConstructor;
 
 import java.util.List;
 
-/**
- * 列表分页返回结构，与接口文档保持一致：page/size/total/list。
- */
+//分页查询结果
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

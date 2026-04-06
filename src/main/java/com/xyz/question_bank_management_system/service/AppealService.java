@@ -9,9 +9,9 @@ import com.xyz.question_bank_management_system.vo.TeacherAppealItemVO;
 public interface AppealService {
 
     Long submitAppeal(AppealCreateRequest request, Long userId);
-
+    //student appeal
     PageResponse<AppealMyItemVO> pageMyAppeals(Long userId, Integer status, long page, long size);
-
+    //appeal pages in teachers' view
     PageResponse<TeacherAppealItemVO> pageTeacherAppeals(Integer status, long page, long size);
 
     void handleAppeal(Long appealId, AppealHandleRequest request, Long handlerId);

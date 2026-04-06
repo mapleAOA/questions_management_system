@@ -1,19 +1,24 @@
 package com.xyz.question_bank_management_system.mapper;
 
 import com.xyz.question_bank_management_system.entity.QbPaper;
-import org.apache.ibatis.annotations.*;
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Options;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
 
 @Mapper
 public interface QbPaperMapper {
 
-    @Insert("INSERT INTO qb_paper(paper_title, paper_desc, paper_type, total_score, rule_json, status, creator_id, created_at, updated_at, is_deleted) " +
-            "VALUES(#{paperTitle}, #{paperDesc}, #{paperType}, #{totalScore}, #{ruleJson}, #{status}, #{creatorId}, NOW(3), NOW(3), 0)")
+    @Insert("INSERT INTO qb_paper(paper_title, paper_desc, paper_type, total_score, status, creator_id, created_at, updated_at, is_deleted) " +
+            "VALUES(#{paperTitle}, #{paperDesc}, #{paperType}, #{totalScore}, #{status}, #{creatorId}, NOW(3), NOW(3), 0)")
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insert(QbPaper paper);
 
-    @Update("UPDATE qb_paper SET paper_title=#{paperTitle}, paper_desc=#{paperDesc}, paper_type=#{paperType}, total_score=#{totalScore}, rule_json=#{ruleJson}, status=#{status}, updated_at=NOW(3) WHERE id=#{id} AND is_deleted=0")
+    @Update("UPDATE qb_paper SET paper_title=#{paperTitle}, paper_desc=#{paperDesc}, paper_type=#{paperType}, total_score=#{totalScore}, status=#{status}, updated_at=NOW(3) WHERE id=#{id} AND is_deleted=0")
     int update(QbPaper paper);
 
     @Select("SELECT * FROM qb_paper WHERE id=#{id} AND is_deleted=0")

@@ -17,17 +17,23 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class LlmServiceImpl implements LlmService {
 
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(60);
+
     private final QwenProperties qwenProperties;
     private final QbLlmCallMapper llmCallMapper;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final HttpClient httpClient = HttpClient.newHttpClient();
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(CONNECT_TIMEOUT)
+            .build();
 
     @Override
     public QbLlmCall chatCompletion(int bizType, long bizId, String prompt) {
@@ -82,6 +88,7 @@ public class LlmServiceImpl implements LlmService {
 
             HttpRequest httpReq = HttpRequest.newBuilder()
                     .uri(URI.create(baseUrl + "/chat/completions"))
+                    .timeout(REQUEST_TIMEOUT)
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + apiKey)
                     .POST(HttpRequest.BodyPublishers.ofString(body))

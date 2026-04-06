@@ -43,7 +43,7 @@ public class JwtUtil {
         }
     }
 
-    public String generateToken(long userId, String username, String rolesCsv) {
+    public String generateToken(long userId, String username, String role) {
         long now = Instant.now().getEpochSecond();
         long exp = now + expireSeconds;
 
@@ -54,7 +54,7 @@ public class JwtUtil {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("uid", userId);
         payload.put("sub", username);
-        payload.put("roles", rolesCsv);
+        payload.put("role", role);
         payload.put("iat", now);
         payload.put("exp", exp);
 
@@ -88,8 +88,8 @@ public class JwtUtil {
 
             long uid = ((Number) payload.get("uid")).longValue();
             String sub = String.valueOf(payload.get("sub"));
-            String roles = payload.get("roles") == null ? "" : String.valueOf(payload.get("roles"));
-            return new JwtPayload(uid, sub, roles, exp);
+            String role = payload.get("role") == null ? "" : String.valueOf(payload.get("role"));
+            return new JwtPayload(uid, sub, role, exp);
         } catch (BizException e) {
             throw e;
         } catch (Exception e) {
@@ -136,6 +136,6 @@ public class JwtUtil {
         return r == 0;
     }
 
-    public record JwtPayload(long userId, String username, String rolesCsv, long expEpochSec) {
+    public record JwtPayload(long userId, String username, String roleCode, long expEpochSec) {
     }
 }

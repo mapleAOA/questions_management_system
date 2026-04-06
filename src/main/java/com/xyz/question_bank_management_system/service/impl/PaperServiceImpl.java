@@ -3,6 +3,8 @@ package com.xyz.question_bank_management_system.service.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xyz.question_bank_management_system.common.PageResponse;
 import com.xyz.question_bank_management_system.dto.PaperAddQuestionRequest;
+import com.xyz.question_bank_management_system.dto.PaperQuestionBatchUpdateItem;
+import com.xyz.question_bank_management_system.dto.PaperQuestionBatchUpdateRequest;
 import com.xyz.question_bank_management_system.dto.PaperQuestionUpdateRequest;
 import com.xyz.question_bank_management_system.dto.PaperUpsertRequest;
 import com.xyz.question_bank_management_system.entity.QbPaper;
@@ -24,14 +26,18 @@ import com.xyz.question_bank_management_system.util.HashUtil;
 import com.xyz.question_bank_management_system.util.PageParamUtil;
 import com.xyz.question_bank_management_system.vo.PaperDetailVO;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -55,7 +61,6 @@ public class PaperServiceImpl implements PaperService {
         p.setPaperDesc(request.getPaperDesc());
         p.setPaperType(request.getPaperType());
         p.setStatus(request.getStatus());
-        p.setRuleJson(request.getRuleJson());
         p.setTotalScore(0);
         p.setCreatorId(creatorId);
         paperMapper.insert(p);
@@ -69,7 +74,6 @@ public class PaperServiceImpl implements PaperService {
         p.setPaperDesc(request.getPaperDesc());
         p.setPaperType(request.getPaperType());
         p.setStatus(request.getStatus());
-        p.setRuleJson(request.getRuleJson());
         paperMapper.update(p);
     }
 
@@ -109,7 +113,6 @@ public class PaperServiceImpl implements PaperService {
         vo.setPaperDesc(p.getPaperDesc());
         vo.setPaperType(p.getPaperType());
         vo.setTotalScore(p.getTotalScore());
-        vo.setRuleJson(p.getRuleJson());
         vo.setStatus(p.getStatus());
         vo.setCreatorId(p.getCreatorId());
         vo.setCreatedAt(p.getCreatedAt());
@@ -154,10 +157,79 @@ public class PaperServiceImpl implements PaperService {
         pq.setScore(request.getScore());
         pq.setSnapshotJson(snapshotJson);
         pq.setSnapshotHash(snapshotHash);
-        paperQuestionMapper.insert(pq);
+        try {
+            paperQuestionMapper.insert(pq);
+        } catch (DuplicateKeyException e) {
+            throw BizException.of(ErrorCode.CONFLICT, "paper already has a question at this order");
+        }
 
         recalculateTotalScore(paperId, actorId, isAdmin);
         return pq.getId();
+    }
+
+    @Override
+    @Transactional
+    public void batchUpdatePaperQuestions(Long paperId, PaperQuestionBatchUpdateRequest request, Long actorId, boolean isAdmin) {
+        loadPaperForManage(paperId, actorId, isAdmin);
+
+        List<QbPaperQuestion> existingQuestions = paperQuestionMapper.selectByPaperId(paperId);
+        List<PaperQuestionBatchUpdateItem> items = request.getQuestions();
+        if (items == null || items.isEmpty()) {
+            throw BizException.of(ErrorCode.PARAM_ERROR, "questions cannot be empty");
+        }
+        if (items.size() != existingQuestions.size()) {
+            throw BizException.of(ErrorCode.PARAM_ERROR, "all paper questions must be included");
+        }
+
+        Map<Long, QbPaperQuestion> existingById = new HashMap<>();
+        for (QbPaperQuestion question : existingQuestions) {
+            existingById.put(question.getId(), question);
+        }
+
+        Set<Long> seenIds = new HashSet<>();
+        Set<Integer> seenOrderNos = new HashSet<>();
+        int itemCount = items.size();
+        for (PaperQuestionBatchUpdateItem item : items) {
+            if (!seenIds.add(item.getId())) {
+                throw BizException.of(ErrorCode.PARAM_ERROR, "duplicate paper question id");
+            }
+            if (item.getOrderNo() == null || item.getOrderNo() < 1 || item.getOrderNo() > itemCount) {
+                throw BizException.of(ErrorCode.PARAM_ERROR, "orderNo out of range");
+            }
+            if (!seenOrderNos.add(item.getOrderNo())) {
+                throw BizException.of(ErrorCode.PARAM_ERROR, "duplicate orderNo");
+            }
+            if (!existingById.containsKey(item.getId())) {
+                throw BizException.of(ErrorCode.NOT_FOUND, "paper question not found");
+            }
+        }
+
+        int currentMaxOrder = existingQuestions.stream()
+                .map(QbPaperQuestion::getOrderNo)
+                .filter(Objects::nonNull)
+                .max(Integer::compareTo)
+                .orElse(0);
+        int tempBase = currentMaxOrder + itemCount + 100;
+        int tempOrder = tempBase;
+        for (PaperQuestionBatchUpdateItem item : items) {
+            QbPaperQuestion question = existingById.get(item.getId());
+            question.setOrderNo(++tempOrder);
+            question.setScore(item.getScore());
+            paperQuestionMapper.update(question);
+        }
+
+        for (PaperQuestionBatchUpdateItem item : items) {
+            QbPaperQuestion question = existingById.get(item.getId());
+            question.setOrderNo(item.getOrderNo());
+            question.setScore(item.getScore());
+            try {
+                paperQuestionMapper.update(question);
+            } catch (DuplicateKeyException e) {
+                throw BizException.of(ErrorCode.CONFLICT, "paper already has a question at this order");
+            }
+        }
+
+        recalculateTotalScore(paperId, actorId, isAdmin);
     }
 
     @Override
@@ -170,7 +242,11 @@ public class PaperServiceImpl implements PaperService {
 
         pq.setOrderNo(request.getOrderNo());
         pq.setScore(request.getScore());
-        paperQuestionMapper.update(pq);
+        try {
+            paperQuestionMapper.update(pq);
+        } catch (DuplicateKeyException e) {
+            throw BizException.of(ErrorCode.CONFLICT, "paper already has a question at this order");
+        }
         recalculateTotalScore(pq.getPaperId(), actorId, isAdmin);
     }
 
@@ -212,8 +288,8 @@ public class PaperServiceImpl implements PaperService {
         if (q.getCreatedBy() == null || q.getStatus() == null || q.getStatus() != 2) {
             return false;
         }
-        List<String> roles = roleMapper.selectRoleCodesByUserId(q.getCreatedBy());
-        return roles.stream().anyMatch(r -> "ADMIN".equalsIgnoreCase(r));
+        String role = roleMapper.selectRoleCodeByUserId(q.getCreatedBy());
+        return "ADMIN".equalsIgnoreCase(role);
     }
 
     private String buildQuestionSnapshot(Long questionId) {

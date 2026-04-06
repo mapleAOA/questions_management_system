@@ -1,5 +1,6 @@
 package com.xyz.question_bank_management_system.mapper;
 
+import com.xyz.question_bank_management_system.entity.QbQuestionTagLink;
 import org.apache.ibatis.annotations.*;
 
 import java.util.List;
@@ -18,6 +19,18 @@ public interface QbQuestionTagMapper {
 
     @Delete("DELETE FROM qb_question_tag WHERE question_id=#{questionId}")
     int deleteByQuestionId(@Param("questionId") Long questionId);
+
+    @Select({
+            "<script>",
+            "SELECT question_id, tag_id",
+            "FROM qb_question_tag",
+            "WHERE question_id IN",
+            "<foreach collection='questionIds' item='qid' open='(' close=')' separator=','>",
+            "  #{qid}",
+            "</foreach>",
+            "</script>"
+    })
+    List<QbQuestionTagLink> selectLinksByQuestionIds(@Param("questionIds") List<Long> questionIds);
 
     int batchInsert(@Param("questionId") Long questionId, @Param("tagIds") List<Long> tagIds);
 }

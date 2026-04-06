@@ -21,6 +21,6 @@ public class LoginResponse {
         private String username;
         private String displayName;
         private String email;
-        private java.util.List<String> roles;
+        private String role;
     }
 }

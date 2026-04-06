@@ -3,7 +3,6 @@ package com.xyz.question_bank_management_system.service.impl;
 import com.xyz.question_bank_management_system.common.PageResponse;
 import com.xyz.question_bank_management_system.common.enums.QuestionTypeEnum;
 import com.xyz.question_bank_management_system.dto.QuestionCaseDTO;
-import com.xyz.question_bank_management_system.dto.QuestionCaseUpsertRequest;
 import com.xyz.question_bank_management_system.dto.QuestionOptionDTO;
 import com.xyz.question_bank_management_system.dto.QuestionSearchQuery;
 import com.xyz.question_bank_management_system.dto.QuestionUpsertRequest;
@@ -308,55 +307,6 @@ public class QuestionServiceImpl implements QuestionService {
             list.add(vo);
         }
         return PageResponse.of(safePage, safeSize, total, list);
-    }
-
-    @Override
-    public List<QbQuestionCase> listCases(Long questionId, Long actorId, boolean isAdmin) {
-        QbQuestion q = loadQuestionForManage(questionId, actorId, isAdmin);
-        if (q == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "question not found");
-        }
-        return caseMapper.selectByQuestionId(questionId);
-    }
-
-    @Override
-    @Transactional
-    public Long upsertCase(Long questionId, QuestionCaseUpsertRequest request, Long actorId, boolean isAdmin) {
-        QbQuestion q = loadQuestionForManage(questionId, actorId, isAdmin);
-        if (q == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "question not found");
-        }
-
-        QbQuestionCase existed = caseMapper.selectByQuestionAndCaseNo(questionId, request.getCaseNo());
-        if (existed != null) {
-            existed.setInputData(request.getInputData());
-            existed.setExpectedOutput(request.getExpectedOutput());
-            existed.setCaseScore(request.getCaseScore() == null ? 0 : request.getCaseScore());
-            existed.setIsSample(Boolean.TRUE.equals(request.getIsSample()) ? 1 : 0);
-            caseMapper.update(existed);
-            return existed.getId();
-        }
-
-        QbQuestionCase c = new QbQuestionCase();
-        c.setQuestionId(questionId);
-        c.setCaseNo(request.getCaseNo());
-        c.setInputData(request.getInputData());
-        c.setExpectedOutput(request.getExpectedOutput());
-        c.setCaseScore(request.getCaseScore() == null ? 0 : request.getCaseScore());
-        c.setIsSample(Boolean.TRUE.equals(request.getIsSample()) ? 1 : 0);
-        caseMapper.insert(c);
-        return c.getId();
-    }
-
-    @Override
-    @Transactional
-    public void deleteCase(Long caseId, Long actorId, boolean isAdmin) {
-        QbQuestionCase existed = caseMapper.selectById(caseId);
-        if (existed == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "question not found");
-        }
-        loadQuestionForManage(existed.getQuestionId(), actorId, isAdmin);
-        caseMapper.deleteById(caseId);
     }
 
     @Override

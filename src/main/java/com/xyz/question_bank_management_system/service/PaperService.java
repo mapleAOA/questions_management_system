@@ -2,6 +2,7 @@ package com.xyz.question_bank_management_system.service;
 
 import com.xyz.question_bank_management_system.common.PageResponse;
 import com.xyz.question_bank_management_system.dto.PaperAddQuestionRequest;
+import com.xyz.question_bank_management_system.dto.PaperQuestionBatchUpdateRequest;
 import com.xyz.question_bank_management_system.dto.PaperQuestionUpdateRequest;
 import com.xyz.question_bank_management_system.dto.PaperUpsertRequest;
 import com.xyz.question_bank_management_system.entity.QbPaper;
@@ -20,6 +21,8 @@ public interface PaperService {
     PaperDetailVO detail(Long paperId, Long actorId, boolean isAdmin);
 
     Long addQuestion(Long paperId, PaperAddQuestionRequest request, Long actorId, boolean isAdmin);
+
+    void batchUpdatePaperQuestions(Long paperId, PaperQuestionBatchUpdateRequest request, Long actorId, boolean isAdmin);
 
     void updatePaperQuestion(Long paperQuestionId, PaperQuestionUpdateRequest request, Long actorId, boolean isAdmin);
 

@@ -23,6 +23,15 @@ public interface QbAppealMapper {
     long countPendingByAnswerAndUser(@Param("answerId") Long answerId, @Param("userId") Long userId);
 
     @Select({
+            "SELECT COUNT(1)",
+            "FROM qb_appeal ap",
+            "INNER JOIN qb_answer a ON a.id = ap.answer_id",
+            "WHERE a.attempt_id = #{attemptId}",
+            "  AND ap.appeal_status = 1"
+    })
+    long countPendingByAttemptId(@Param("attemptId") Long attemptId);
+
+    @Select({
             "<script>",
             "SELECT COUNT(1)",
             "FROM qb_appeal",

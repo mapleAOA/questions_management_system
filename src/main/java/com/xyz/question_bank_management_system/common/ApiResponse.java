@@ -5,8 +5,6 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * 缁熶竴杩斿洖浣擄細闄ょ櫥褰曟帴鍙ｅ锛屽叾浠栨帴鍙ｇ粺涓€鐢ㄨ缁撴瀯銆? */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

@@ -4,7 +4,7 @@ import com.xyz.question_bank_management_system.common.PageResponse;
 import com.xyz.question_bank_management_system.common.enums.RoleCode;
 import com.xyz.question_bank_management_system.dto.AdminCreateUserRequest;
 import com.xyz.question_bank_management_system.dto.AdminUpdateUserRequest;
-import com.xyz.question_bank_management_system.dto.AdminUpdateUserRolesRequest;
+import com.xyz.question_bank_management_system.dto.AdminUpdateUserRoleRequest;
 import com.xyz.question_bank_management_system.dto.LoginRequest;
 import com.xyz.question_bank_management_system.dto.LoginResponse;
 import com.xyz.question_bank_management_system.dto.RegisterRequest;
@@ -29,7 +29,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 
@@ -67,10 +66,9 @@ public class AuthServiceImpl implements AuthService {
         u.setIsDeleted(0);
         sysUserMapper.insert(u);
 
-        bindRoles(u.getId(), List.of(roleCode));
+        bindRole(u.getId(), roleCode);
 
-        List<String> roles = sysRoleMapper.selectRoleCodesByUserId(u.getId());
-        String token = jwtUtil.generateToken(u.getId(), u.getUsername(), String.join(",", roles));
+        String token = jwtUtil.generateToken(u.getId(), u.getUsername(), roleCode);
         sysUserMapper.updateLastLoginAt(u.getId(), LocalDateTime.now());
         writeLoginLog(u.getId(), u.getUsername(), 1, null, ip, userAgent);
 
@@ -79,7 +77,7 @@ public class AuthServiceImpl implements AuthService {
                 u.getUsername(),
                 u.getDisplayName(),
                 u.getEmail(),
-                roles
+                roleCode
         );
         return new LoginResponse(true, token, userDTO, "ok");
     }
@@ -100,8 +98,8 @@ public class AuthServiceImpl implements AuthService {
             return new LoginResponse(false, null, null, "invalid username or password");
         }
 
-        List<String> roles = sysRoleMapper.selectRoleCodesByUserId(user.getId());
-        String token = jwtUtil.generateToken(user.getId(), user.getUsername(), String.join(",", roles));
+        String roleCode = getRoleOrThrow(user.getId());
+        String token = jwtUtil.generateToken(user.getId(), user.getUsername(), roleCode);
 
         sysUserMapper.updateLastLoginAt(user.getId(), LocalDateTime.now());
         writeLoginLog(user.getId(), user.getUsername(), 1, null, ip, userAgent);
@@ -111,7 +109,7 @@ public class AuthServiceImpl implements AuthService {
                 user.getUsername(),
                 user.getDisplayName(),
                 user.getEmail(),
-                roles
+                roleCode
         );
         return new LoginResponse(true, token, userDTO, "ok");
     }
@@ -128,8 +126,8 @@ public class AuthServiceImpl implements AuthService {
             throw BizException.of(ErrorCode.UNAUTHORIZED, "user not found");
         }
 
-        List<String> roles = sysRoleMapper.selectRoleCodesByUserId(uid);
-        return new LoginResponse.UserDTO(user.getId(), user.getUsername(), user.getDisplayName(), user.getEmail(), roles);
+        String roleCode = getRoleOrThrow(uid);
+        return new LoginResponse.UserDTO(user.getId(), user.getUsername(), user.getDisplayName(), user.getEmail(), roleCode);
     }
 
     @Override
@@ -150,7 +148,7 @@ public class AuthServiceImpl implements AuthService {
             vo.setEmail(u.getEmail());
             vo.setStatus(u.getStatus());
             vo.setCreatedAt(u.getCreatedAt());
-            vo.setRoles(sysRoleMapper.selectRoleCodesByUserId(u.getId()));
+            vo.setRole(sysRoleMapper.selectRoleCodeByUserId(u.getId()));
             list.add(vo);
         }
         return PageResponse.of(safePage, safeSize, total, list);
@@ -173,7 +171,8 @@ public class AuthServiceImpl implements AuthService {
         u.setIsDeleted(0);
         sysUserMapper.insert(u);
 
-        bindRoles(u.getId(), request.getRoles());
+        String roleCode = normalizeAdminRole(request.getRole());
+        bindRole(u.getId(), roleCode);
         return u.getId();
     }
 
@@ -198,13 +197,14 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     @Transactional
-    public void updateUserRoles(Long userId, AdminUpdateUserRolesRequest request) {
+    public void updateUserRole(Long userId, AdminUpdateUserRoleRequest request) {
         SysUser u = sysUserMapper.selectById(userId);
         if (u == null) {
             throw BizException.of(ErrorCode.NOT_FOUND, "user not found");
         }
+        String roleCode = normalizeAdminRole(request.getRole());
         sysUserRoleMapper.deleteByUserId(userId);
-        bindRoles(userId, request.getRoles());
+        bindRole(userId, roleCode);
     }
 
     @Override
@@ -218,42 +218,28 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public void adminUpdateUserRoles(Long userId, AdminUpdateUserRolesRequest request) {
-        updateUserRoles(userId, request);
+    public void adminUpdateUserRole(Long userId, AdminUpdateUserRoleRequest request) {
+        updateUserRole(userId, request);
     }
 
-    private void bindRoles(Long userId, List<String> roleCodes) {
-        if (roleCodes == null) {
-            return;
+    private void bindRole(Long userId, String roleCode) {
+        SysRole role = sysRoleMapper.selectByCode(roleCode);
+        if (role == null) {
+            SysRole r = new SysRole();
+            r.setRoleCode(roleCode);
+            r.setRoleName(roleCode);
+            sysRoleMapper.insert(r);
+            role = r;
         }
+        sysUserRoleMapper.insert(userId, role.getId());
+    }
 
-        LinkedHashSet<String> uniqueCodes = new LinkedHashSet<>();
-        for (String rc : roleCodes) {
-            if (rc == null) {
-                continue;
-            }
-            String normalized = rc.trim();
-            if (normalized.isEmpty()) {
-                continue;
-            }
-            uniqueCodes.add(normalized.toUpperCase(Locale.ROOT));
+    private String getRoleOrThrow(Long userId) {
+        String roleCode = sysRoleMapper.selectRoleCodeByUserId(userId);
+        if (roleCode == null || roleCode.isBlank()) {
+            throw BizException.of(ErrorCode.FORBIDDEN, "user role not found");
         }
-
-        for (String code : uniqueCodes) {
-            if (code.isBlank()) {
-                continue;
-            }
-
-            SysRole role = sysRoleMapper.selectByCode(code);
-            if (role == null) {
-                SysRole r = new SysRole();
-                r.setRoleCode(code);
-                r.setRoleName(code);
-                sysRoleMapper.insert(r);
-                role = r;
-            }
-            sysUserRoleMapper.insert(userId, role.getId());
-        }
+        return roleCode;
     }
 
     private void writeLoginLog(Long userId, String username, int successFlag, String failReason, String ip, String userAgent) {
@@ -280,5 +266,18 @@ public class AuthServiceImpl implements AuthService {
             return normalized;
         }
         throw BizException.of(ErrorCode.PARAM_ERROR, "role must be STUDENT or TEACHER");
+    }
+
+    private String normalizeAdminRole(String role) {
+        if (role == null) {
+            throw BizException.of(ErrorCode.PARAM_ERROR, "role is required");
+        }
+        String normalized = role.trim().toUpperCase(Locale.ROOT);
+        if (RoleCode.STUDENT.name().equals(normalized)
+                || RoleCode.TEACHER.name().equals(normalized)
+                || RoleCode.ADMIN.name().equals(normalized)) {
+            return normalized;
+        }
+        throw BizException.of(ErrorCode.PARAM_ERROR, "role must be STUDENT or TEACHER or ADMIN");
     }
 }

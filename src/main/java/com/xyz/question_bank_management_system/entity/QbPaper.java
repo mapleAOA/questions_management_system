@@ -9,11 +9,9 @@ public class QbPaper {
     private Long id;
     private String paperTitle;
     private String paperDesc;
-    /** 1=manual,2=rule_generated */
+    /** paper type */
     private Integer paperType;
     private Integer totalScore;
-    /** JSON as String */
-    private String ruleJson;
     /** 1=draft,2=published,3=archived */
     private Integer status;
     private Long creatorId;

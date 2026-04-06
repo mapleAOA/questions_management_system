@@ -4,7 +4,7 @@ import com.xyz.question_bank_management_system.common.ApiResponse;
 import com.xyz.question_bank_management_system.common.PageResponse;
 import com.xyz.question_bank_management_system.dto.AdminCreateUserRequest;
 import com.xyz.question_bank_management_system.dto.AdminUpdateUserRequest;
-import com.xyz.question_bank_management_system.dto.AdminUpdateUserRolesRequest;
+import com.xyz.question_bank_management_system.dto.AdminUpdateUserRoleRequest;
 import com.xyz.question_bank_management_system.service.AuthService;
 import com.xyz.question_bank_management_system.vo.UserListItemVO;
 import jakarta.validation.Valid;
@@ -22,7 +22,7 @@ public class AdminUserController {
 
     @GetMapping
     public ApiResponse<PageResponse<UserListItemVO>> page(@RequestParam(defaultValue = "1") long page,
-                                                         @RequestParam(defaultValue = "20") long size) {
+                                                           @RequestParam(defaultValue = "20") long size) {
         return ApiResponse.ok(authService.pageUsers(page, size));
     }
 
@@ -37,9 +37,9 @@ public class AdminUserController {
         return ApiResponse.ok();
     }
 
-    @PutMapping("/{userId}/roles")
-    public ApiResponse<Void> updateRoles(@PathVariable Long userId, @RequestBody @Valid AdminUpdateUserRolesRequest request) {
-        authService.adminUpdateUserRoles(userId, request);
+    @PutMapping("/{userId}/role")
+    public ApiResponse<Void> updateRole(@PathVariable Long userId, @RequestBody @Valid AdminUpdateUserRoleRequest request) {
+        authService.adminUpdateUserRole(userId, request);
         return ApiResponse.ok();
     }
 }

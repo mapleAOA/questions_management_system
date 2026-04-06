@@ -42,4 +42,18 @@ public interface QbQuestionUserStatMapper {
                                           @Param("questionId") Long questionId,
                                           @Param("offset") long offset,
                                           @Param("size") long size);
+
+    @Select({
+            "<script>",
+            "SELECT user_id, question_id, attempt_count, correct_count, last_attempt_at",
+            "FROM qb_question_user_stat",
+            "WHERE user_id = #{userId}",
+            "  AND question_id IN",
+            "  <foreach collection='questionIds' item='qid' open='(' close=')' separator=','>",
+            "    #{qid}",
+            "  </foreach>",
+            "</script>"
+    })
+    List<QbQuestionUserStat> selectByUserIdAndQuestionIds(@Param("userId") Long userId,
+                                                          @Param("questionIds") List<Long> questionIds);
 }

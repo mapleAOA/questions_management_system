@@ -2,12 +2,14 @@ package com.xyz.question_bank_management_system.service.impl;
 
 import com.xyz.question_bank_management_system.common.PageResponse;
 import com.xyz.question_bank_management_system.common.enums.AppealStatusEnum;
+import com.xyz.question_bank_management_system.common.enums.AttemptStatusEnum;
 import com.xyz.question_bank_management_system.common.enums.GradingModeEnum;
 import com.xyz.question_bank_management_system.common.enums.QuestionTypeEnum;
 import com.xyz.question_bank_management_system.dto.AppealCreateRequest;
 import com.xyz.question_bank_management_system.dto.AppealHandleRequest;
 import com.xyz.question_bank_management_system.entity.QbAnswer;
 import com.xyz.question_bank_management_system.entity.QbAppeal;
+import com.xyz.question_bank_management_system.entity.QbAttempt;
 import com.xyz.question_bank_management_system.entity.QbAttemptQuestion;
 import com.xyz.question_bank_management_system.entity.QbGradingRecord;
 import com.xyz.question_bank_management_system.exception.BizException;
@@ -18,6 +20,7 @@ import com.xyz.question_bank_management_system.mapper.QbAttemptMapper;
 import com.xyz.question_bank_management_system.mapper.QbAttemptQuestionMapper;
 import com.xyz.question_bank_management_system.mapper.QbGradingRecordMapper;
 import com.xyz.question_bank_management_system.service.AppealService;
+import com.xyz.question_bank_management_system.service.UserAbilityService;
 import com.xyz.question_bank_management_system.util.PageParamUtil;
 import com.xyz.question_bank_management_system.vo.AppealMyItemVO;
 import com.xyz.question_bank_management_system.vo.TeacherAppealItemVO;
@@ -38,6 +41,7 @@ public class AppealServiceImpl implements AppealService {
     private final QbAttemptQuestionMapper attemptQuestionMapper;
     private final QbAttemptMapper attemptMapper;
     private final QbGradingRecordMapper gradingRecordMapper;
+    private final UserAbilityService userAbilityService;
 
     @Override
     @Transactional
@@ -60,6 +64,7 @@ public class AppealServiceImpl implements AppealService {
         appeal.setReasonText(request.getReasonText().trim());
         appeal.setAppealStatus(AppealStatusEnum.PENDING.getCode());
         appealMapper.insert(appeal);
+        refreshAttemptReviewState(answer.getAttemptId());
         return appeal.getId();
     }
 
@@ -145,6 +150,7 @@ public class AppealServiceImpl implements AppealService {
                 gradingRecordMapper.insert(record);
 
                 updateAttemptScoreByDelta(answer.getAttemptId(), attemptQuestion.getQuestionType(), targetFinalScore - currentFinalScore);
+                userAbilityService.recomputeAndPersist(answer.getUserId());
                 targetAppealStatus = AppealStatusEnum.RESOLVED.getCode();
             } else {
                 targetAppealStatus = AppealStatusEnum.APPROVED.getCode();
@@ -159,6 +165,7 @@ public class AppealServiceImpl implements AppealService {
                 request.getDecisionComment(),
                 targetFinalScore
         );
+        refreshAttemptReviewState(answer.getAttemptId());
     }
 
     private void updateAttemptScoreByDelta(Long attemptId, Integer questionType, int delta) {
@@ -192,5 +199,21 @@ public class AppealServiceImpl implements AppealService {
 
     private int safeInt(Integer value) {
         return value == null ? 0 : value;
+    }
+
+    private void refreshAttemptReviewState(Long attemptId) {
+        if (attemptId == null) {
+            return;
+        }
+        QbAttempt attempt = attemptMapper.selectById(attemptId);
+        if (attempt == null) {
+            return;
+        }
+        long pendingReviewCount = answerMapper.countPendingReviewByAttemptId(attemptId);
+        long pendingAppealCount = appealMapper.countPendingByAttemptId(attemptId);
+        boolean hasPendingWork = pendingReviewCount > 0 || pendingAppealCount > 0;
+        attempt.setNeedsReview(hasPendingWork ? 1 : 0);
+        attempt.setStatus(hasPendingWork ? AttemptStatusEnum.GRADING.getCode() : AttemptStatusEnum.GRADED.getCode());
+        attemptMapper.updateAfterSubmit(attempt);
     }
 }

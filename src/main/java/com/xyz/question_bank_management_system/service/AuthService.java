@@ -1,8 +1,13 @@
 package com.xyz.question_bank_management_system.service;
 
-import com.xyz.question_bank_management_system.dto.*;
-import com.xyz.question_bank_management_system.vo.UserListItemVO;
 import com.xyz.question_bank_management_system.common.PageResponse;
+import com.xyz.question_bank_management_system.dto.AdminCreateUserRequest;
+import com.xyz.question_bank_management_system.dto.AdminUpdateUserRequest;
+import com.xyz.question_bank_management_system.dto.AdminUpdateUserRoleRequest;
+import com.xyz.question_bank_management_system.dto.LoginRequest;
+import com.xyz.question_bank_management_system.dto.LoginResponse;
+import com.xyz.question_bank_management_system.dto.RegisterRequest;
+import com.xyz.question_bank_management_system.vo.UserListItemVO;
 
 public interface AuthService {
 
@@ -18,11 +23,11 @@ public interface AuthService {
 
     void updateUser(Long userId, AdminUpdateUserRequest request);
 
-    void updateUserRoles(Long userId, AdminUpdateUserRolesRequest request);
+    void updateUserRole(Long userId, AdminUpdateUserRoleRequest request);
 
     Long adminCreateUser(AdminCreateUserRequest request);
 
     void adminUpdateUser(Long userId, AdminUpdateUserRequest request);
 
-    void adminUpdateUserRoles(Long userId, AdminUpdateUserRolesRequest request);
+    void adminUpdateUserRole(Long userId, AdminUpdateUserRoleRequest request);
 }

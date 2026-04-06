@@ -3,7 +3,6 @@ package com.xyz.question_bank_management_system.vo;
 import lombok.Data;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 @Data
 public class UserListItemVO {
@@ -13,5 +12,5 @@ public class UserListItemVO {
     private String email;
     private Integer status;
     private LocalDateTime createdAt;
-    private List<String> roles;
+    private String role;
 }
