@@ -31,6 +31,26 @@ public interface QbClassMemberMapper {
             "WHERE m.student_id=#{studentId}")
     List<Long> listTeacherIdsByStudentId(@Param("studentId") Long studentId);
 
+    @Select({
+            "<script>",
+            "SELECT DISTINCT cm.student_id",
+            "FROM qb_class_member cm",
+            "WHERE cm.class_id IN",
+            "<foreach collection='classIds' item='classId' open='(' close=')' separator=','>",
+            "  #{classId}",
+            "</foreach>",
+            "ORDER BY cm.student_id ASC",
+            "</script>"
+    })
+    List<Long> listStudentIdsByClassIds(@Param("classIds") List<Long> classIds);
+
+    @Select("SELECT DISTINCT cm.student_id " +
+            "FROM qb_class_member cm " +
+            "JOIN qb_class c ON c.id=cm.class_id AND c.is_deleted=0 " +
+            "WHERE c.teacher_id=#{teacherId} " +
+            "ORDER BY cm.student_id ASC")
+    List<Long> listStudentIdsByTeacherId(@Param("teacherId") Long teacherId);
+
     @Delete("DELETE FROM qb_class_member WHERE class_id=#{classId} AND student_id=#{studentId}")
     int removeByClassAndStudent(@Param("classId") Long classId, @Param("studentId") Long studentId);
 }

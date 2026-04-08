@@ -3,11 +3,13 @@ package com.xyz.question_bank_management_system.service.impl;
 import com.xyz.question_bank_management_system.dto.AppealCreateRequest;
 import com.xyz.question_bank_management_system.dto.AppealHandleRequest;
 import com.xyz.question_bank_management_system.entity.QbAnswer;
+import com.xyz.question_bank_management_system.entity.QbAssignment;
 import com.xyz.question_bank_management_system.entity.QbAppeal;
 import com.xyz.question_bank_management_system.entity.QbAttempt;
 import com.xyz.question_bank_management_system.entity.QbAttemptQuestion;
 import com.xyz.question_bank_management_system.mapper.QbAnswerMapper;
 import com.xyz.question_bank_management_system.mapper.QbAppealMapper;
+import com.xyz.question_bank_management_system.mapper.QbAssignmentMapper;
 import com.xyz.question_bank_management_system.mapper.QbAttemptMapper;
 import com.xyz.question_bank_management_system.mapper.QbAttemptQuestionMapper;
 import com.xyz.question_bank_management_system.mapper.QbGradingRecordMapper;
@@ -34,6 +36,8 @@ class AppealServiceImplTest {
     private QbAppealMapper appealMapper;
     @Mock
     private QbAnswerMapper answerMapper;
+    @Mock
+    private QbAssignmentMapper assignmentMapper;
     @Mock
     private QbAttemptQuestionMapper attemptQuestionMapper;
     @Mock
@@ -104,6 +108,7 @@ class AppealServiceImplTest {
 
         QbAttempt attempt = new QbAttempt();
         attempt.setId(9001L);
+        attempt.setAssignmentId(9101L);
         attempt.setStatus(3);
         attempt.setNeedsReview(1);
         attempt.setSubmittedAt(LocalDateTime.now());
@@ -111,6 +116,10 @@ class AppealServiceImplTest {
         attempt.setTotalScore(60);
         attempt.setObjectiveScore(20);
         attempt.setSubjectiveScore(40);
+
+        QbAssignment assignment = new QbAssignment();
+        assignment.setId(9101L);
+        assignment.setCreatedBy(7001L);
 
         AppealHandleRequest request = new AppealHandleRequest();
         request.setAction("approve");
@@ -121,10 +130,11 @@ class AppealServiceImplTest {
         when(answerMapper.selectById(501L)).thenReturn(answer);
         when(attemptQuestionMapper.selectById(601L)).thenReturn(attemptQuestion);
         when(attemptMapper.selectById(9001L)).thenReturn(attempt);
+        when(assignmentMapper.selectById(9101L)).thenReturn(assignment);
         when(answerMapper.countPendingReviewByAttemptId(9001L)).thenReturn(0L);
         when(appealMapper.countPendingByAttemptId(9001L)).thenReturn(0L);
 
-        appealService.handleAppeal(801L, request, 7001L);
+        appealService.handleAppeal(801L, request, 7001L, false);
 
         verify(answerMapper).updateScoring(eq(501L), eq(10), eq(18), eq(0), any(LocalDateTime.class));
         verify(attemptMapper).updateScoreDelta(9001L, 8, 0, 8);

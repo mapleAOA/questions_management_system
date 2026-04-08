@@ -8,6 +8,7 @@ import com.xyz.question_bank_management_system.common.enums.QuestionTypeEnum;
 import com.xyz.question_bank_management_system.dto.AppealCreateRequest;
 import com.xyz.question_bank_management_system.dto.AppealHandleRequest;
 import com.xyz.question_bank_management_system.entity.QbAnswer;
+import com.xyz.question_bank_management_system.entity.QbAssignment;
 import com.xyz.question_bank_management_system.entity.QbAppeal;
 import com.xyz.question_bank_management_system.entity.QbAttempt;
 import com.xyz.question_bank_management_system.entity.QbAttemptQuestion;
@@ -16,6 +17,7 @@ import com.xyz.question_bank_management_system.exception.BizException;
 import com.xyz.question_bank_management_system.exception.ErrorCode;
 import com.xyz.question_bank_management_system.mapper.QbAnswerMapper;
 import com.xyz.question_bank_management_system.mapper.QbAppealMapper;
+import com.xyz.question_bank_management_system.mapper.QbAssignmentMapper;
 import com.xyz.question_bank_management_system.mapper.QbAttemptMapper;
 import com.xyz.question_bank_management_system.mapper.QbAttemptQuestionMapper;
 import com.xyz.question_bank_management_system.mapper.QbGradingRecordMapper;
@@ -31,6 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -38,6 +41,7 @@ public class AppealServiceImpl implements AppealService {
 
     private final QbAppealMapper appealMapper;
     private final QbAnswerMapper answerMapper;
+    private final QbAssignmentMapper assignmentMapper;
     private final QbAttemptQuestionMapper attemptQuestionMapper;
     private final QbAttemptMapper attemptMapper;
     private final QbGradingRecordMapper gradingRecordMapper;
@@ -81,20 +85,25 @@ public class AppealServiceImpl implements AppealService {
     }
 
     @Override
-    public PageResponse<TeacherAppealItemVO> pageTeacherAppeals(Integer status, long page, long size) {
+    public PageResponse<TeacherAppealItemVO> pageTeacherAppeals(Integer status,
+                                                                long page,
+                                                                long size,
+                                                                Long actorId,
+                                                                boolean isAdmin) {
         Integer safeStatus = normalizeStatus(status, true);
         long safePage = PageParamUtil.normalizePage(page);
         long safeSize = PageParamUtil.normalizeSize(size);
         long offset = PageParamUtil.offset(safePage, safeSize);
+        Long ownerId = isAdmin ? null : actorId;
 
-        List<TeacherAppealItemVO> rows = appealMapper.pageForTeacher(safeStatus, offset, safeSize);
-        long total = appealMapper.countForTeacher(safeStatus);
+        List<TeacherAppealItemVO> rows = appealMapper.pageForTeacher(safeStatus, ownerId, offset, safeSize);
+        long total = appealMapper.countForTeacher(safeStatus, ownerId);
         return PageResponse.of(safePage, safeSize, total, rows);
     }
 
     @Override
     @Transactional
-    public void handleAppeal(Long appealId, AppealHandleRequest request, Long handlerId) {
+    public void handleAppeal(Long appealId, AppealHandleRequest request, Long handlerId, boolean isAdmin) {
         QbAppeal appeal = appealMapper.selectById(appealId);
         if (appeal == null) {
             throw BizException.of(ErrorCode.NOT_FOUND, "申诉记录不存在");
@@ -112,6 +121,12 @@ public class AppealServiceImpl implements AppealService {
         if (answer == null) {
             throw BizException.of(ErrorCode.NOT_FOUND, "答案不存在");
         }
+        QbAttempt attempt = attemptMapper.selectById(answer.getAttemptId());
+        if (attempt == null) {
+            throw BizException.of(ErrorCode.NOT_FOUND, "作答不存在");
+        }
+        ensureCanHandleAttempt(attempt, handlerId, isAdmin);
+
         QbAttemptQuestion attemptQuestion = attemptQuestionMapper.selectById(answer.getAttemptQuestionId());
         if (attemptQuestion == null) {
             throw BizException.of(ErrorCode.NOT_FOUND, "作答题目不存在");
@@ -142,7 +157,7 @@ public class AppealServiceImpl implements AppealService {
                 record.setAnswerId(answer.getId());
                 record.setGradingMode(GradingModeEnum.MANUAL.getCode());
                 record.setScore(targetFinalScore);
-                record.setDetailJson("{\"\\u6765\\u6e90\":\"\\u7533\\u8bc9\\u5904\\u7406\"}");
+                record.setDetailJson("{\"来源\":\"申诉处理\"}");
                 record.setNeedsReview(0);
                 record.setReviewerId(handlerId);
                 record.setReviewComment(request.getDecisionComment());
@@ -201,6 +216,19 @@ public class AppealServiceImpl implements AppealService {
         return value == null ? 0 : value;
     }
 
+    private void ensureCanHandleAttempt(QbAttempt attempt, Long actorId, boolean isAdmin) {
+        if (isAdmin) {
+            return;
+        }
+        if (attempt == null || attempt.getAssignmentId() == null) {
+            throw BizException.of(ErrorCode.FORBIDDEN, "无权处理该申诉");
+        }
+        QbAssignment assignment = assignmentMapper.selectById(attempt.getAssignmentId());
+        if (assignment == null || !Objects.equals(assignment.getCreatedBy(), actorId)) {
+            throw BizException.of(ErrorCode.FORBIDDEN, "无权处理该申诉");
+        }
+    }
+
     private void refreshAttemptReviewState(Long attemptId) {
         if (attemptId == null) {
             return;
@@ -217,4 +245,3 @@ public class AppealServiceImpl implements AppealService {
         attemptMapper.updateAfterSubmit(attempt);
     }
 }
-

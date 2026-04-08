@@ -82,7 +82,7 @@ class PaperServiceImplTest {
         BizException ex = assertThrows(BizException.class, () -> paperService.addQuestion(9001L, request, 1001L, false));
 
         assertEquals(ErrorCode.CONFLICT, ex.getCode());
-        assertEquals("paper already has a question at this order", ex.getMessage());
+        assertEquals("该排序位置已存在试题", ex.getMessage());
     }
 
     @Test

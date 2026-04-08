@@ -139,18 +139,18 @@ public class AssignmentServiceImpl implements AssignmentService {
     }
 
     @Override
-    public PageResponse<QbAssignment> pageMineOrAll(long page, long size, Long teacherId, boolean isAdmin) {
+    public PageResponse<QbAssignment> pageMineOrAll(long page, long size, String keyword, Long teacherId, boolean isAdmin) {
         long safePage = PageParamUtil.normalizePage(page);
         long safeSize = PageParamUtil.normalizeSize(size);
         long offset = PageParamUtil.offset(safePage, safeSize);
 
         if (isAdmin) {
-            List<QbAssignment> rows = assignmentMapper.pageAll(offset, safeSize);
-            long total = assignmentMapper.countAll();
+            List<QbAssignment> rows = assignmentMapper.pageAll(keyword, offset, safeSize);
+            long total = assignmentMapper.countAll(keyword);
             return PageResponse.of(safePage, safeSize, total, rows);
         }
-        List<QbAssignment> rows = assignmentMapper.pageByTeacher(teacherId, offset, safeSize);
-        long total = assignmentMapper.countByTeacher(teacherId);
+        List<QbAssignment> rows = assignmentMapper.pageByTeacher(teacherId, keyword, offset, safeSize);
+        long total = assignmentMapper.countByTeacher(teacherId, keyword);
         return PageResponse.of(safePage, safeSize, total, rows);
     }
 

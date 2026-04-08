@@ -9,6 +9,8 @@ public class TeacherAppealItemVO {
     private Long appealId;
     private Long answerId;
     private Long studentId;
+    private Long assignmentId;
+    private String assignmentTitle;
     private String reasonText;
     private Integer appealStatus;
     private LocalDateTime createdAt;

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xyz.question_bank_management_system.common.PageResponse;
 import com.xyz.question_bank_management_system.common.enums.*;
+import com.xyz.question_bank_management_system.config.LlmProperties;
 import com.xyz.question_bank_management_system.dto.PracticeStartRequest;
 import com.xyz.question_bank_management_system.dto.SaveAnswerDraftRequest;
 import com.xyz.question_bank_management_system.entity.*;
@@ -68,6 +69,7 @@ public class AttemptServiceImpl implements AttemptService {
     private final QbQuestionCaseMapper caseMapper;
     private final QbQuestionTagMapper questionTagMapper;
     private final QbClassMemberMapper classMemberMapper;
+    private final QbLlmCallMapper llmCallMapper;
 
     private final QbQuestionUserStatMapper questionUserStatMapper;
     private final QbWrongQuestionMapper wrongQuestionMapper;
@@ -76,6 +78,7 @@ public class AttemptServiceImpl implements AttemptService {
     private final UserAbilityService userAbilityService;
 
     private final LlmService llmService;
+    private final LlmProperties llmProperties;
     private final AuditLogService auditLogService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -279,6 +282,7 @@ public class AttemptServiceImpl implements AttemptService {
         if (!Objects.equals(attempt.getUserId(), userId)) {
             throw BizException.of(ErrorCode.FORBIDDEN, "\u65e0\u6743\u8bbf\u95ee\u8be5\u4f5c\u7b54");
         }
+        autoSubmitExpiredAttempt(attempt, userId);
 
         List<QbAttemptQuestion> aqs = attemptQuestionMapper.selectByAttemptId(attemptId);
         List<QbAnswer> answers = answerMapper.selectByAttemptId(attemptId);
@@ -286,6 +290,10 @@ public class AttemptServiceImpl implements AttemptService {
         for (QbAnswer a : answers) {
             byAttemptQuestionId.put(a.getAttemptQuestionId(), a);
         }
+        QbAssignment assignment = resolveAttemptAssignment(attempt);
+        LocalDateTime deadlineAt = resolveAttemptDeadline(attempt, assignment);
+        Integer remainingSec = resolveRemainingSeconds(deadlineAt);
+        Integer timeLimitMin = assignment == null ? null : assignment.getTimeLimitMin();
 
         List<AttemptQuestionVO> res = new ArrayList<>();
         for (QbAttemptQuestion aq : aqs) {
@@ -302,6 +310,10 @@ public class AttemptServiceImpl implements AttemptService {
                 vo.setAnswerContent(ans.getAnswerContent());
                 vo.setAnswerStatus(ans.getAnswerStatus());
             }
+            vo.setAttemptStatus(attempt.getStatus());
+            vo.setTimeLimitMin(timeLimitMin);
+            vo.setDeadlineAt(deadlineAt);
+            vo.setRemainingSec(remainingSec);
             res.add(vo);
         }
         return res;
@@ -318,6 +330,7 @@ public class AttemptServiceImpl implements AttemptService {
         if (attempt.getStatus() == null || attempt.getStatus() != AttemptStatusEnum.IN_PROGRESS.getCode()) {
             throw BizException.of(ErrorCode.FORBIDDEN, "\u5f53\u524d\u72b6\u6001\u4e0d\u5141\u8bb8\u4fdd\u5b58\u8349\u7a3f");
         }
+        autoSubmitExpiredAttempt(attempt, userId);
         answerMapper.updateDraft(answerId, normalizeAnswerContent(request.getAnswerContent()));
     }
 
@@ -340,6 +353,7 @@ public class AttemptServiceImpl implements AttemptService {
         if (attempt.getStatus() == null || attempt.getStatus() != AttemptStatusEnum.IN_PROGRESS.getCode()) {
             throw BizException.of(ErrorCode.FORBIDDEN, "\u5f53\u524d\u4f5c\u7b54\u4e0d\u5904\u4e8e\u8fdb\u884c\u4e2d\u72b6\u6001");
         }
+        autoSubmitExpiredAttempt(attempt, userId);
         answerMapper.submitOne(answerId, normalizeAnswerContent(request.getAnswerContent()), LocalDateTime.now());
     }
 
@@ -540,13 +554,10 @@ public class AttemptServiceImpl implements AttemptService {
             throw BizException.of(ErrorCode.FORBIDDEN, "\u5f53\u524d\u4f5c\u7b54\u4e0d\u5904\u4e8e\u8fdb\u884c\u4e2d\u72b6\u6001");
         }
 
-        LocalDateTime submittedAt = LocalDateTime.now();
+        LocalDateTime submittedAt = resolveSubmissionTime(attempt, LocalDateTime.now());
         answerMapper.submitAllByAttempt(attemptId, submittedAt);
 
-        int durationSec = 0;
-        if (attempt.getStartedAt() != null) {
-            durationSec = (int) Duration.between(attempt.getStartedAt(), submittedAt).getSeconds();
-        }
+        int durationSec = calculateDurationSec(attempt, submittedAt);
 
         QbAttempt upd = new QbAttempt();
         upd.setId(attemptId);
@@ -563,6 +574,77 @@ public class AttemptServiceImpl implements AttemptService {
             recordAudit(userId, "ATTEMPT_SUBMIT", "ATTEMPT", attemptId, null, attemptAuditSnapshot(submitted));
         }
         return new SubmissionContext(attemptId, userId);
+    }
+
+    private void autoSubmitExpiredAttempt(QbAttempt attempt, Long userId) {
+        if (attempt == null
+                || attempt.getStatus() == null
+                || attempt.getStatus() != AttemptStatusEnum.IN_PROGRESS.getCode()) {
+            return;
+        }
+        LocalDateTime deadlineAt = resolveAttemptDeadline(attempt, null);
+        if (deadlineAt == null || LocalDateTime.now().isBefore(deadlineAt)) {
+            return;
+        }
+        submitAttempt(attempt.getId(), userId);
+        throw BizException.of(ErrorCode.CONFLICT, "\u4f5c\u7b54\u5df2\u8d85\u65f6\uff0c\u7cfb\u7edf\u5df2\u81ea\u52a8\u63d0\u4ea4\uff0c\u8bf7\u5230\u4f5c\u7b54\u8bb0\u5f55\u67e5\u770b\u7ed3\u679c");
+    }
+
+    private QbAssignment resolveAttemptAssignment(QbAttempt attempt) {
+        if (attempt == null || attempt.getAssignmentId() == null) {
+            return null;
+        }
+        return assignmentMapper.selectById(attempt.getAssignmentId());
+    }
+
+    private LocalDateTime resolveAttemptDeadline(QbAttempt attempt, QbAssignment assignment) {
+        if (attempt == null) {
+            return null;
+        }
+        QbAssignment currentAssignment = assignment != null ? assignment : resolveAttemptAssignment(attempt);
+        if (currentAssignment == null) {
+            return null;
+        }
+        LocalDateTime deadlineAt = currentAssignment.getEndTime();
+        Integer timeLimitMin = currentAssignment.getTimeLimitMin();
+        if (timeLimitMin != null && timeLimitMin > 0 && attempt.getStartedAt() != null) {
+            LocalDateTime limitDeadline = attempt.getStartedAt().plusMinutes(timeLimitMin);
+            deadlineAt = earlierTime(deadlineAt, limitDeadline);
+        }
+        return deadlineAt;
+    }
+
+    private Integer resolveRemainingSeconds(LocalDateTime deadlineAt) {
+        if (deadlineAt == null) {
+            return null;
+        }
+        long seconds = Duration.between(LocalDateTime.now(), deadlineAt).getSeconds();
+        return (int) Math.max(seconds, 0);
+    }
+
+    private LocalDateTime resolveSubmissionTime(QbAttempt attempt, LocalDateTime now) {
+        LocalDateTime deadlineAt = resolveAttemptDeadline(attempt, null);
+        if (deadlineAt != null && now.isAfter(deadlineAt)) {
+            return deadlineAt;
+        }
+        return now;
+    }
+
+    private int calculateDurationSec(QbAttempt attempt, LocalDateTime submittedAt) {
+        if (attempt == null || attempt.getStartedAt() == null || submittedAt == null) {
+            return 0;
+        }
+        return (int) Math.max(Duration.between(attempt.getStartedAt(), submittedAt).getSeconds(), 0);
+    }
+
+    private LocalDateTime earlierTime(LocalDateTime left, LocalDateTime right) {
+        if (left == null) {
+            return right;
+        }
+        if (right == null) {
+            return left;
+        }
+        return left.isBefore(right) ? left : right;
     }
 
     private void gradeAttemptSafely(SubmissionContext context) {
@@ -780,6 +862,7 @@ public class AttemptServiceImpl implements AttemptService {
             snapshot.put("answerFormat", q.getAnswerFormat());
             snapshot.put("analysisText", q.getAnalysisText());
             snapshot.put("analysisSource", q.getAnalysisSource());
+            snapshot.put("llmAnalyses", buildQuestionLlmAnalyses(questionId));
             snapshot.put("tagIds", tagIds);
             snapshot.put("options", options);
             snapshot.put("cases", cases);
@@ -1338,7 +1421,7 @@ public class AttemptServiceImpl implements AttemptService {
         try {
             JsonNode root = objectMapper.readTree(snapshotJson);
             if (root.isObject()) {
-                ((com.fasterxml.jackson.databind.node.ObjectNode) root).remove(List.of("standardAnswer", "analysisText", "analysisSource", "analysisLlmCallId"));
+                ((com.fasterxml.jackson.databind.node.ObjectNode) root).remove(List.of("standardAnswer", "analysisText", "analysisSource", "analysisLlmCallId", "llmAnalyses"));
 
                 // remove isCorrect from options
                 JsonNode options = root.get("options");
@@ -1504,6 +1587,137 @@ public class AttemptServiceImpl implements AttemptService {
             }
         }
         return null;
+    }
+
+    private List<QuestionLlmAnalysisVO> buildQuestionLlmAnalyses(Long questionId) {
+        List<QbLlmCall> calls = llmCallMapper.selectByBiz(1, questionId);
+        List<QuestionLlmAnalysisVO> analyses = new ArrayList<>();
+        for (LlmProperties.ModelProvider provider : llmProperties.questionAnalysisProviders()) {
+            analyses.add(buildQuestionLlmAnalysis(provider, calls));
+        }
+        return analyses;
+    }
+
+    private QuestionLlmAnalysisVO buildQuestionLlmAnalysis(LlmProperties.ModelProvider provider, List<QbLlmCall> calls) {
+        QuestionLlmAnalysisVO vo = new QuestionLlmAnalysisVO();
+        vo.setAnalysisKey(provider.resolveKey());
+        vo.setAnalysisLabel(provider.resolveLabel());
+        vo.setModelName(provider.getModel());
+        vo.setHasAnalysis(false);
+
+        QbLlmCall latestCall = findLatestQuestionAnalysisCall(provider, calls, null);
+        QbLlmCall latestSuccessfulCall = findLatestQuestionAnalysisCall(provider, calls, 1);
+        if (latestCall == null) {
+            vo.setCallStatus(-1);
+            vo.setAnalysisText("尚未生成解析");
+            return vo;
+        }
+
+        if (latestSuccessfulCall != null) {
+            vo.setHasAnalysis(true);
+            fillQuestionAnalysisContent(vo, latestSuccessfulCall);
+            if (Objects.equals(latestCall.getId(), latestSuccessfulCall.getId())
+                    || Objects.equals(latestCall.getCallStatus(), 1)) {
+                vo.setCallStatus(1);
+                return vo;
+            }
+            if (Objects.equals(latestCall.getCallStatus(), 0)) {
+                vo.setCallStatus(0);
+                vo.setErrorMessage("正在重新生成，当前展示上一次成功解析");
+                return vo;
+            }
+            vo.setCallStatus(2);
+            vo.setErrorMessage(trimToNull(latestCall.getResponseText()));
+            if (vo.getErrorMessage() == null) {
+                vo.setErrorMessage("最近一次生成失败，当前展示上一次成功解析");
+            }
+            return vo;
+        }
+
+        vo.setLlmCallId(latestCall.getId());
+        vo.setCallStatus(latestCall.getCallStatus());
+        vo.setLatencyMs(latestCall.getLatencyMs());
+        vo.setCreatedAt(latestCall.getCreatedAt());
+
+        if (latestCall.getCallStatus() != null && latestCall.getCallStatus() == 0) {
+            vo.setAnalysisText("解析生成中，请稍后刷新查看结果");
+            return vo;
+        }
+
+        vo.setAnalysisText("解析生成失败");
+        vo.setErrorMessage(trimToNull(latestCall.getResponseText()));
+        return vo;
+    }
+
+    private void fillQuestionAnalysisContent(QuestionLlmAnalysisVO vo, QbLlmCall call) {
+        vo.setLlmCallId(call.getId());
+        vo.setLatencyMs(call.getLatencyMs());
+        vo.setCreatedAt(call.getCreatedAt());
+        String content = llmService.extractContent(call.getResponseText());
+        if (content == null || content.isBlank()) {
+            vo.setAnalysisText("解析已生成，但暂未提取到正文内容");
+            return;
+        }
+        vo.setAnalysisText(content.trim());
+    }
+
+    private QbLlmCall findLatestQuestionAnalysisCall(LlmProperties.ModelProvider provider,
+                                                     List<QbLlmCall> calls,
+                                                     Integer expectedStatus) {
+        if (calls == null || calls.isEmpty()) {
+            return null;
+        }
+        QbLlmCall latestCall = null;
+        for (QbLlmCall call : calls) {
+            if (call == null || !matchesQuestionAnalysisProvider(provider, call.getModelName())) {
+                continue;
+            }
+            if (expectedStatus != null && !Objects.equals(expectedStatus, call.getCallStatus())) {
+                continue;
+            }
+            if (latestCall == null || isNewerQuestionAnalysisCall(call, latestCall)) {
+                latestCall = call;
+            }
+        }
+        return latestCall;
+    }
+
+    private boolean isNewerQuestionAnalysisCall(QbLlmCall candidate, QbLlmCall current) {
+        if (candidate == null) {
+            return false;
+        }
+        if (current == null) {
+            return true;
+        }
+        if (candidate.getId() != null && current.getId() != null) {
+            return candidate.getId() > current.getId();
+        }
+        if (candidate.getCreatedAt() != null && current.getCreatedAt() != null) {
+            return candidate.getCreatedAt().isAfter(current.getCreatedAt());
+        }
+        return candidate.getCreatedAt() != null || current.getCreatedAt() == null;
+    }
+
+    private boolean matchesQuestionAnalysisProvider(LlmProperties.ModelProvider provider, String modelName) {
+        if (provider == null || modelName == null || modelName.isBlank()) {
+            return false;
+        }
+        String normalizedModelName = modelName.trim().toLowerCase(Locale.ROOT);
+        if (provider.getModel() != null && normalizedModelName.equals(provider.getModel().trim().toLowerCase(Locale.ROOT))) {
+            return true;
+        }
+        if (provider.getKey() != null && normalizedModelName.equals(provider.getKey().trim().toLowerCase(Locale.ROOT))) {
+            return true;
+        }
+        return provider.getLabel() != null && normalizedModelName.equals(provider.getLabel().trim().toLowerCase(Locale.ROOT));
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private Map<String, Object> attemptAuditSnapshot(QbAttempt attempt) {

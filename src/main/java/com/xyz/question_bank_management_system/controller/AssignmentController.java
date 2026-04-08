@@ -52,10 +52,11 @@ public class AssignmentController {
     @GetMapping
     @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     public ApiResponse<PageResponse<QbAssignment>> page(@RequestParam(defaultValue = "1") long page,
-                                                       @RequestParam(defaultValue = "20") long size) {
+                                                       @RequestParam(defaultValue = "20") long size,
+                                                       @RequestParam(required = false) String keyword) {
         Long uid = SecurityContextUtil.getUserId();
         boolean isAdmin = hasRole("ROLE_ADMIN");
-        return ApiResponse.ok(assignmentService.pageMineOrAll(page, size, uid, isAdmin));
+        return ApiResponse.ok(assignmentService.pageMineOrAll(page, size, keyword, uid, isAdmin));
     }
 
     @GetMapping("/my")

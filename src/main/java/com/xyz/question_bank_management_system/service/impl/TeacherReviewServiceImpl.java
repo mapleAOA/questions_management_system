@@ -16,8 +16,11 @@ import com.xyz.question_bank_management_system.exception.ErrorCode;
 import com.xyz.question_bank_management_system.mapper.QbAnswerMapper;
 import com.xyz.question_bank_management_system.mapper.QbAppealMapper;
 import com.xyz.question_bank_management_system.mapper.QbAssignmentMapper;
+import com.xyz.question_bank_management_system.mapper.QbAssignmentTargetClassMapper;
+import com.xyz.question_bank_management_system.mapper.QbAssignmentTargetMapper;
 import com.xyz.question_bank_management_system.mapper.QbAttemptMapper;
 import com.xyz.question_bank_management_system.mapper.QbAttemptQuestionMapper;
+import com.xyz.question_bank_management_system.mapper.QbClassMemberMapper;
 import com.xyz.question_bank_management_system.mapper.QbGradingRecordMapper;
 import com.xyz.question_bank_management_system.mapper.QbLlmCallMapper;
 import com.xyz.question_bank_management_system.mapper.SysUserMapper;
@@ -28,6 +31,8 @@ import com.xyz.question_bank_management_system.util.LlmPromptBuilder;
 import com.xyz.question_bank_management_system.util.PageParamUtil;
 import com.xyz.question_bank_management_system.vo.TeacherAnswerEvidenceVO;
 import com.xyz.question_bank_management_system.vo.TeacherAssignmentScoreItemVO;
+import com.xyz.question_bank_management_system.vo.TeacherAssignmentStudentDetailVO;
+import com.xyz.question_bank_management_system.vo.TeacherAssignmentTargetItemVO;
 import com.xyz.question_bank_management_system.vo.TeacherReviewAnswerItemVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -35,7 +40,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -44,8 +54,11 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
     private final QbAnswerMapper answerMapper;
     private final QbAppealMapper appealMapper;
     private final QbAssignmentMapper assignmentMapper;
+    private final QbAssignmentTargetMapper targetMapper;
+    private final QbAssignmentTargetClassMapper targetClassMapper;
     private final QbAttemptMapper attemptMapper;
     private final QbAttemptQuestionMapper attemptQuestionMapper;
+    private final QbClassMemberMapper classMemberMapper;
     private final QbGradingRecordMapper gradingRecordMapper;
     private final QbLlmCallMapper llmCallMapper;
     private final SysUserMapper sysUserMapper;
@@ -54,27 +67,32 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
-    public PageResponse<TeacherReviewAnswerItemVO> reviewAnswers(Long assignmentId, Boolean needsReview, long page, long size) {
+    public PageResponse<TeacherReviewAnswerItemVO> reviewAnswers(Long assignmentId,
+                                                                 Boolean needsReview,
+                                                                 long page,
+                                                                 long size,
+                                                                 Long actorId,
+                                                                 boolean isAdmin) {
+        if (assignmentId != null) {
+            loadManageableAssignment(assignmentId, actorId, isAdmin);
+        }
         long safePage = PageParamUtil.normalizePage(page);
         long safeSize = PageParamUtil.normalizeSize(size);
         long offset = PageParamUtil.offset(safePage, safeSize);
         Integer needsReviewInt = needsReview == null ? 1 : (needsReview ? 1 : 0);
+        Long ownerId = isAdmin ? null : actorId;
 
-        List<TeacherReviewAnswerItemVO> rows = answerMapper.pageTeacherReview(assignmentId, needsReviewInt, offset, safeSize);
-        long total = answerMapper.countTeacherReview(assignmentId, needsReviewInt);
+        List<TeacherReviewAnswerItemVO> rows = answerMapper.pageTeacherReview(assignmentId, needsReviewInt, ownerId, offset, safeSize);
+        long total = answerMapper.countTeacherReview(assignmentId, needsReviewInt, ownerId);
         return PageResponse.of(safePage, safeSize, total, rows);
     }
 
     @Override
-    public TeacherAnswerEvidenceVO evidence(Long answerId) {
-        QbAnswer answer = answerMapper.selectById(answerId);
-        if (answer == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "\u7b54\u6848\u4e0d\u5b58\u5728");
-        }
-        QbAttemptQuestion aq = attemptQuestionMapper.selectById(answer.getAttemptQuestionId());
-        if (aq == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "\u4f5c\u7b54\u9898\u76ee\u4e0d\u5b58\u5728");
-        }
+    public TeacherAnswerEvidenceVO evidence(Long answerId, Long actorId, boolean isAdmin) {
+        QbAnswer answer = loadAnswer(answerId);
+        QbAttempt attempt = loadAttempt(answer.getAttemptId());
+        ensureCanReviewAttempt(attempt, actorId, isAdmin);
+        QbAttemptQuestion aq = loadAttemptQuestion(answer.getAttemptQuestionId());
 
         TeacherAnswerEvidenceVO vo = new TeacherAnswerEvidenceVO();
         vo.setAnswerId(answer.getId());
@@ -120,19 +138,15 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
 
     @Override
     @Transactional
-    public void manualGrade(Long answerId, Integer score, String comment, Long reviewerId) {
-        QbAnswer answer = answerMapper.selectById(answerId);
-        if (answer == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "\u7b54\u6848\u4e0d\u5b58\u5728");
-        }
+    public void manualGrade(Long answerId, Integer score, String comment, Long reviewerId, boolean isAdmin) {
+        QbAnswer answer = loadAnswer(answerId);
+        QbAttempt attempt = loadAttempt(answer.getAttemptId());
+        ensureCanReviewAttempt(attempt, reviewerId, isAdmin);
+        QbAttemptQuestion aq = loadAttemptQuestion(answer.getAttemptQuestionId());
 
-        QbAttemptQuestion aq = attemptQuestionMapper.selectById(answer.getAttemptQuestionId());
-        if (aq == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "\u4f5c\u7b54\u9898\u76ee\u4e0d\u5b58\u5728");
-        }
         int maxScore = aq.getScore() == null ? 0 : aq.getScore();
         if (score == null || score < 0 || score > maxScore) {
-            throw BizException.of(ErrorCode.PARAM_ERROR, "\u5206\u6570\u8d85\u51fa\u5141\u8bb8\u8303\u56f4");
+            throw BizException.of(ErrorCode.PARAM_ERROR, "分数超出允许范围");
         }
 
         int previousScore = answer.getFinalScore() == null ? 0 : answer.getFinalScore();
@@ -142,7 +156,7 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
         record.setAnswerId(answerId);
         record.setGradingMode(3);
         record.setScore(safeScore);
-        record.setDetailJson("{\"\\u6765\\u6e90\":\"\\u4eba\\u5de5\\u8bc4\\u5206\"}");
+        record.setDetailJson("{\"来源\":\"人工评分\"}");
         record.setNeedsReview(0);
         record.setReviewerId(reviewerId);
         record.setReviewComment(comment);
@@ -157,15 +171,16 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
 
     @Override
     @Transactional
-    public List<Long> llmRetry(Long answerId, String modelName, Double temperature, Integer times) {
-        QbAnswer answer = answerMapper.selectById(answerId);
-        if (answer == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "\u7b54\u6848\u4e0d\u5b58\u5728");
-        }
-        QbAttemptQuestion aq = attemptQuestionMapper.selectById(answer.getAttemptQuestionId());
-        if (aq == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "\u4f5c\u7b54\u9898\u76ee\u4e0d\u5b58\u5728");
-        }
+    public List<Long> llmRetry(Long answerId,
+                               String modelName,
+                               Double temperature,
+                               Integer times,
+                               Long actorId,
+                               boolean isAdmin) {
+        QbAnswer answer = loadAnswer(answerId);
+        QbAttempt attempt = loadAttempt(answer.getAttemptId());
+        ensureCanReviewAttempt(attempt, actorId, isAdmin);
+        QbAttemptQuestion aq = loadAttemptQuestion(answer.getAttemptQuestionId());
 
         int safeTimes = times == null ? 1 : Math.max(1, Math.min(5, times));
         String prompt = buildLlmRetryPrompt(answer, aq, modelName, temperature);
@@ -209,11 +224,12 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
     }
 
     @Override
-    public PageResponse<TeacherAssignmentScoreItemVO> assignmentScores(Long assignmentId, long page, long size) {
-        QbAssignment assignment = assignmentMapper.selectById(assignmentId);
-        if (assignment == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "\u4f5c\u4e1a\u4e0d\u5b58\u5728");
-        }
+    public PageResponse<TeacherAssignmentScoreItemVO> assignmentScores(Long assignmentId,
+                                                                       long page,
+                                                                       long size,
+                                                                       Long actorId,
+                                                                       boolean isAdmin) {
+        loadManageableAssignment(assignmentId, actorId, isAdmin);
 
         long safePage = PageParamUtil.normalizePage(page);
         long safeSize = PageParamUtil.normalizeSize(size);
@@ -222,6 +238,218 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
         List<TeacherAssignmentScoreItemVO> rows = attemptMapper.pageByAssignmentForTeacher(assignmentId, offset, safeSize);
         long total = attemptMapper.countByAssignmentForTeacher(assignmentId);
         return PageResponse.of(safePage, safeSize, total, rows);
+    }
+
+    @Override
+    public PageResponse<TeacherAssignmentTargetItemVO> assignmentTargets(Long assignmentId,
+                                                                         long page,
+                                                                         long size,
+                                                                         Long actorId,
+                                                                         boolean isAdmin) {
+        QbAssignment assignment = loadManageableAssignment(assignmentId, actorId, isAdmin);
+        List<Long> targetStudentIds = resolveAssignmentTargetStudentIds(assignment);
+
+        long safePage = PageParamUtil.normalizePage(page);
+        long safeSize = PageParamUtil.normalizeSize(size);
+        int fromIndex = (int) Math.min(PageParamUtil.offset(safePage, safeSize), targetStudentIds.size());
+        int toIndex = (int) Math.min(fromIndex + safeSize, targetStudentIds.size());
+
+        List<TeacherAssignmentTargetItemVO> rows = new ArrayList<>();
+        for (Long studentId : targetStudentIds.subList(fromIndex, toIndex)) {
+            rows.add(buildAssignmentTargetItem(assignment.getId(), studentId));
+        }
+        return PageResponse.of(safePage, safeSize, targetStudentIds.size(), rows);
+    }
+
+    @Override
+    public TeacherAssignmentStudentDetailVO assignmentStudentDetail(Long assignmentId,
+                                                                   Long studentId,
+                                                                   Long actorId,
+                                                                   boolean isAdmin) {
+        QbAssignment assignment = loadManageableAssignment(assignmentId, actorId, isAdmin);
+        List<Long> targetStudentIds = resolveAssignmentTargetStudentIds(assignment);
+        List<QbAttempt> attempts = attemptMapper.selectByAssignmentAndUser(assignmentId, studentId);
+        if (!targetStudentIds.contains(studentId) && attempts.isEmpty()) {
+            throw BizException.of(ErrorCode.FORBIDDEN, "该学生不在本次作业的目标范围内");
+        }
+
+        TeacherAssignmentStudentDetailVO vo = new TeacherAssignmentStudentDetailVO();
+        vo.setAssignmentId(assignment.getId());
+        vo.setAssignmentTitle(assignment.getAssignmentTitle());
+        vo.setStudentId(studentId);
+
+        SysUser user = sysUserMapper.selectById(studentId);
+        if (user != null) {
+            vo.setUsername(user.getUsername());
+            vo.setDisplayName(user.getDisplayName());
+        }
+
+        List<TeacherAssignmentStudentDetailVO.AttemptItemVO> attemptVos = new ArrayList<>();
+        for (QbAttempt attempt : attempts) {
+            TeacherAssignmentStudentDetailVO.AttemptItemVO attemptVo = new TeacherAssignmentStudentDetailVO.AttemptItemVO();
+            attemptVo.setAttemptId(attempt.getId());
+            attemptVo.setAttemptNo(attempt.getAttemptNo());
+            attemptVo.setStatus(attempt.getStatus());
+            attemptVo.setTotalScore(attempt.getTotalScore());
+            attemptVo.setObjectiveScore(attempt.getObjectiveScore());
+            attemptVo.setSubjectiveScore(attempt.getSubjectiveScore());
+            attemptVo.setNeedsReview(attempt.getNeedsReview());
+            attemptVo.setStartedAt(attempt.getStartedAt());
+            attemptVo.setSubmittedAt(attempt.getSubmittedAt());
+            attemptVo.setDurationSec(attempt.getDurationSec());
+            attemptVo.setQuestions(buildAttemptQuestionDetails(attempt.getId()));
+            attemptVos.add(attemptVo);
+        }
+        vo.setAttempts(attemptVos);
+        return vo;
+    }
+
+    private TeacherAssignmentTargetItemVO buildAssignmentTargetItem(Long assignmentId, Long studentId) {
+        TeacherAssignmentTargetItemVO vo = new TeacherAssignmentTargetItemVO();
+        vo.setStudentId(studentId);
+
+        SysUser user = sysUserMapper.selectById(studentId);
+        if (user != null) {
+            vo.setUsername(user.getUsername());
+            vo.setDisplayName(user.getDisplayName());
+        }
+
+        List<QbAttempt> attempts = attemptMapper.selectByAssignmentAndUser(assignmentId, studentId);
+        vo.setAttemptCount(attempts.size());
+        vo.setCompleted(attempts.stream().anyMatch(this::isCompletedAttempt) ? 1 : 0);
+        if (!attempts.isEmpty()) {
+            QbAttempt latestAttempt = attempts.get(0);
+            vo.setLatestAttemptId(latestAttempt.getId());
+            vo.setLatestAttemptStatus(latestAttempt.getStatus());
+            vo.setLatestTotalScore(latestAttempt.getTotalScore());
+            vo.setLatestNeedsReview(latestAttempt.getNeedsReview());
+            vo.setLatestSubmittedAt(latestAttempt.getSubmittedAt());
+        }
+        return vo;
+    }
+
+    private List<TeacherAssignmentStudentDetailVO.QuestionItemVO> buildAttemptQuestionDetails(Long attemptId) {
+        List<QbAttemptQuestion> attemptQuestions = attemptQuestionMapper.selectByAttemptId(attemptId);
+        List<QbAnswer> answers = answerMapper.selectByAttemptId(attemptId);
+        Map<Long, QbAnswer> answerByAttemptQuestionId = new HashMap<>();
+        for (QbAnswer answer : answers) {
+            answerByAttemptQuestionId.put(answer.getAttemptQuestionId(), answer);
+        }
+
+        List<TeacherAssignmentStudentDetailVO.QuestionItemVO> rows = new ArrayList<>();
+        attemptQuestions.stream()
+                .sorted(Comparator.comparing(QbAttemptQuestion::getOrderNo, Comparator.nullsLast(Integer::compareTo)))
+                .forEach(attemptQuestion -> {
+                    QbAnswer answer = answerByAttemptQuestionId.get(attemptQuestion.getId());
+                    TeacherAssignmentStudentDetailVO.QuestionItemVO row = new TeacherAssignmentStudentDetailVO.QuestionItemVO();
+                    row.setAnswerId(answer == null ? null : answer.getId());
+                    row.setAttemptQuestionId(attemptQuestion.getId());
+                    row.setOrderNo(attemptQuestion.getOrderNo());
+                    row.setQuestionId(attemptQuestion.getQuestionId());
+                    row.setTitle(extractQuestionTitle(attemptQuestion.getSnapshotJson(), attemptQuestion.getQuestionId()));
+                    row.setQuestionType(attemptQuestion.getQuestionType());
+                    row.setMaxScore(attemptQuestion.getScore());
+                    row.setFinalScore(answer == null ? null : answer.getFinalScore());
+                    row.setAutoScore(answer == null ? null : answer.getAutoScore());
+                    row.setIsCorrect(answer == null ? null : answer.getIsCorrect());
+                    row.setAnswerContent(answer == null ? null : answer.getAnswerContent());
+                    row.setSnapshotJson(attemptQuestion.getSnapshotJson());
+                    rows.add(row);
+                });
+        return rows;
+    }
+
+    private List<Long> resolveAssignmentTargetStudentIds(QbAssignment assignment) {
+        LinkedHashSet<Long> studentIds = new LinkedHashSet<>();
+        List<Long> directUserIds = targetMapper.listUserIdsByAssignmentId(assignment.getId());
+        if (directUserIds != null) {
+            studentIds.addAll(directUserIds);
+        }
+        List<Long> classIds = targetClassMapper.listClassIdsByAssignmentId(assignment.getId());
+        if (classIds != null && !classIds.isEmpty()) {
+            studentIds.addAll(classMemberMapper.listStudentIdsByClassIds(classIds));
+        }
+        if (!studentIds.isEmpty()) {
+            return new ArrayList<>(studentIds);
+        }
+        if (assignment.getCreatedBy() != null) {
+            studentIds.addAll(classMemberMapper.listStudentIdsByTeacherId(assignment.getCreatedBy()));
+        }
+        studentIds.addAll(attemptMapper.listUserIdsByAssignment(assignment.getId()));
+        return new ArrayList<>(studentIds);
+    }
+
+    private QbAssignment loadManageableAssignment(Long assignmentId, Long actorId, boolean isAdmin) {
+        QbAssignment assignment = assignmentMapper.selectById(assignmentId);
+        if (assignment == null) {
+            throw BizException.of(ErrorCode.NOT_FOUND, "作业不存在");
+        }
+        if (!isAdmin && !Objects.equals(assignment.getCreatedBy(), actorId)) {
+            throw BizException.of(ErrorCode.FORBIDDEN, "无权查看该作业");
+        }
+        return assignment;
+    }
+
+    private QbAnswer loadAnswer(Long answerId) {
+        QbAnswer answer = answerMapper.selectById(answerId);
+        if (answer == null) {
+            throw BizException.of(ErrorCode.NOT_FOUND, "答案不存在");
+        }
+        return answer;
+    }
+
+    private QbAttempt loadAttempt(Long attemptId) {
+        QbAttempt attempt = attemptMapper.selectById(attemptId);
+        if (attempt == null) {
+            throw BizException.of(ErrorCode.NOT_FOUND, "作答不存在");
+        }
+        return attempt;
+    }
+
+    private QbAttemptQuestion loadAttemptQuestion(Long attemptQuestionId) {
+        QbAttemptQuestion aq = attemptQuestionMapper.selectById(attemptQuestionId);
+        if (aq == null) {
+            throw BizException.of(ErrorCode.NOT_FOUND, "作答题目不存在");
+        }
+        return aq;
+    }
+
+    private void ensureCanReviewAttempt(QbAttempt attempt, Long actorId, boolean isAdmin) {
+        if (isAdmin) {
+            return;
+        }
+        if (attempt == null || attempt.getAssignmentId() == null) {
+            throw BizException.of(ErrorCode.FORBIDDEN, "无权访问该作答");
+        }
+        QbAssignment assignment = assignmentMapper.selectById(attempt.getAssignmentId());
+        if (assignment == null || !Objects.equals(assignment.getCreatedBy(), actorId)) {
+            throw BizException.of(ErrorCode.FORBIDDEN, "无权访问该作答");
+        }
+    }
+
+    private boolean isCompletedAttempt(QbAttempt attempt) {
+        if (attempt == null || attempt.getStatus() == null) {
+            return false;
+        }
+        return attempt.getStatus() == AttemptStatusEnum.SUBMITTED.getCode()
+                || attempt.getStatus() == AttemptStatusEnum.GRADING.getCode()
+                || attempt.getStatus() == AttemptStatusEnum.GRADED.getCode();
+    }
+
+    private String extractQuestionTitle(String snapshotJson, Long questionId) {
+        try {
+            JsonNode root = objectMapper.readTree(snapshotJson);
+            String title = root.path("title").asText(null);
+            if (title != null && !title.isBlank()) {
+                return title;
+            }
+            String stem = root.path("stem").asText(null);
+            if (stem != null && !stem.isBlank()) {
+                return stem;
+            }
+        } catch (Exception ignore) {
+        }
+        return "题目 #" + (questionId == null ? "-" : questionId);
     }
 
     private String buildLlmRetryPrompt(QbAnswer answer, QbAttemptQuestion aq, String modelName, Double temperature) {
@@ -294,18 +522,18 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
                 return null;
             }
             JsonNode json = parseJsonNode(content);
-            Integer score = readIntField(json, "\u5206\u6570", "score");
+            Integer score = readIntField(json, "分数", "score");
             if (json == null || !json.isObject() || score == null) {
                 return null;
             }
             ParsedLlmGrade result = new ParsedLlmGrade();
             result.score = score;
-            result.confidence = readDoubleField(json, "\u7f6e\u4fe1\u5ea6", "confidence");
-            result.needsReview = readBooleanField(json, "\u9700\u8981\u590d\u6838", "needsReview") != Boolean.FALSE;
+            result.confidence = readDoubleField(json, "置信度", "confidence");
+            result.needsReview = readBooleanField(json, "需要复核", "needsReview") != Boolean.FALSE;
             if (result.confidence != null && result.confidence < 0.55) {
                 result.needsReview = true;
             }
-            result.comment = readTextField(json, "\u8bc4\u8bed", "comment");
+            result.comment = readTextField(json, "评语", "comment");
             result.detailJson = buildLlmDetailJson(result.score, result.confidence, result.needsReview, result.comment);
             return result;
         } catch (Exception ignore) {
@@ -385,10 +613,6 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
         return null;
     }
 
-    private String nullToEmpty(String value) {
-        return value == null ? "" : value;
-    }
-
     private String safeJson(String value) {
         if (value == null) {
             return "";
@@ -399,10 +623,10 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
     private String buildLlmDetailJson(Integer score, Double confidence, boolean needsReview, String comment) {
         String safeScore = score == null ? "null" : String.valueOf(score);
         String safeConfidence = confidence == null ? "null" : String.valueOf(confidence);
-        return "{\"\\u5206\\u6570\":" + safeScore
-                + ",\"\\u7f6e\\u4fe1\\u5ea6\":" + safeConfidence
-                + ",\"\\u9700\\u8981\\u590d\\u6838\":" + needsReview
-                + ",\"\\u8bc4\\u8bed\":\"" + safeJson(comment) + "\"}";
+        return "{\"分数\":" + safeScore
+                + ",\"置信度\":" + safeConfidence
+                + ",\"需要复核\":" + needsReview
+                + ",\"评语\":\"" + safeJson(comment) + "\"}";
     }
 
     private static class ParsedLlmGrade {

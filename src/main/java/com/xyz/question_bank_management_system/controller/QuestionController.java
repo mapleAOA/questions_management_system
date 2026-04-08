@@ -70,11 +70,14 @@ public class QuestionController {
     }
 
     @GetMapping("/{questionId}")
-    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     public ApiResponse<QuestionDetailVO> detail(@PathVariable Long questionId) {
         Long uid = SecurityContextUtil.getUserId();
         boolean isAdmin = hasRole("ROLE_ADMIN");
-        return ApiResponse.ok(questionService.detail(questionId, uid, isAdmin));
+        boolean isTeacher = hasRole("ROLE_TEACHER");
+        if (isAdmin) {
+            return ApiResponse.ok(questionService.detail(questionId, uid, true));
+        }
+        return ApiResponse.ok(questionService.detailForViewer(questionId, uid, isTeacher, false));
     }
 
     @GetMapping

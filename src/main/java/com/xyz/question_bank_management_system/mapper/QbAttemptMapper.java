@@ -4,6 +4,7 @@ import com.xyz.question_bank_management_system.entity.QbAttempt;
 import com.xyz.question_bank_management_system.vo.TeacherAssignmentScoreItemVO;
 import org.apache.ibatis.annotations.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Mapper
@@ -19,6 +20,46 @@ public interface QbAttemptMapper {
 
     @Select("SELECT COUNT(1) FROM qb_attempt WHERE assignment_id=#{assignmentId} AND user_id=#{userId}")
     long countByAssignmentAndUser(@Param("assignmentId") Long assignmentId, @Param("userId") Long userId);
+
+    @Select("SELECT DISTINCT user_id FROM qb_attempt WHERE assignment_id=#{assignmentId} ORDER BY user_id ASC")
+    List<Long> listUserIdsByAssignment(@Param("assignmentId") Long assignmentId);
+
+    @Select("SELECT * FROM qb_attempt WHERE assignment_id=#{assignmentId} AND user_id=#{userId} ORDER BY attempt_no DESC, id DESC")
+    List<QbAttempt> selectByAssignmentAndUser(@Param("assignmentId") Long assignmentId, @Param("userId") Long userId);
+
+    @Select({
+            "<script>",
+            "SELECT t.*",
+            "FROM qb_attempt t",
+            "LEFT JOIN qb_assignment a ON a.id = t.assignment_id",
+            "WHERE t.status = 1",
+            "  AND (",
+            "    CASE",
+            "      WHEN a.end_time IS NOT NULL AND a.time_limit_min IS NOT NULL AND a.time_limit_min &gt; 0 AND t.started_at IS NOT NULL",
+            "        THEN LEAST(a.end_time, DATE_ADD(t.started_at, INTERVAL a.time_limit_min MINUTE))",
+            "      WHEN a.end_time IS NOT NULL",
+            "        THEN a.end_time",
+            "      WHEN a.time_limit_min IS NOT NULL AND a.time_limit_min &gt; 0 AND t.started_at IS NOT NULL",
+            "        THEN DATE_ADD(t.started_at, INTERVAL a.time_limit_min MINUTE)",
+            "      ELSE NULL",
+            "    END",
+            "  ) IS NOT NULL",
+            "  AND (",
+            "    CASE",
+            "      WHEN a.end_time IS NOT NULL AND a.time_limit_min IS NOT NULL AND a.time_limit_min &gt; 0 AND t.started_at IS NOT NULL",
+            "        THEN LEAST(a.end_time, DATE_ADD(t.started_at, INTERVAL a.time_limit_min MINUTE))",
+            "      WHEN a.end_time IS NOT NULL",
+            "        THEN a.end_time",
+            "      WHEN a.time_limit_min IS NOT NULL AND a.time_limit_min &gt; 0 AND t.started_at IS NOT NULL",
+            "        THEN DATE_ADD(t.started_at, INTERVAL a.time_limit_min MINUTE)",
+            "      ELSE NULL",
+            "    END",
+            "  ) &lt;= #{now}",
+            "ORDER BY t.id ASC",
+            "LIMIT #{size}",
+            "</script>"
+    })
+    List<QbAttempt> selectExpiredInProgressAttempts(@Param("now") LocalDateTime now, @Param("size") int size);
 
     @Update("UPDATE qb_attempt SET status=#{status}, submitted_at=#{submittedAt}, duration_sec=#{durationSec}, total_score=#{totalScore}, objective_score=#{objectiveScore}, subjective_score=#{subjectiveScore}, needs_review=#{needsReview}, updated_at=NOW(3) WHERE id=#{id}")
     int updateAfterSubmit(QbAttempt attempt);

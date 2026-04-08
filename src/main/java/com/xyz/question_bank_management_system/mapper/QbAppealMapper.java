@@ -63,28 +63,48 @@ public interface QbAppealMapper {
     @Select({
             "<script>",
             "SELECT COUNT(1)",
-            "FROM qb_appeal",
+            "FROM qb_appeal ap",
+            "LEFT JOIN qb_answer a ON a.id = ap.answer_id",
+            "LEFT JOIN qb_attempt atp ON atp.id = a.attempt_id",
+            "LEFT JOIN qb_assignment ass ON ass.id = atp.assignment_id",
             "WHERE 1=1",
+            "<if test='ownerId != null'>",
+            "  AND ass.created_by = #{ownerId}",
+            "</if>",
             "<if test='status != null'>",
-            "  AND appeal_status=#{status}",
+            "  AND ap.appeal_status=#{status}",
             "</if>",
             "</script>"
     })
-    long countForTeacher(@Param("status") Integer status);
+    long countForTeacher(@Param("status") Integer status, @Param("ownerId") Long ownerId);
 
     @Select({
             "<script>",
-            "SELECT id AS appeal_id, answer_id, user_id AS student_id, reason_text, appeal_status, created_at",
-            "FROM qb_appeal",
+            "SELECT ap.id AS appeal_id,",
+            "       ap.answer_id,",
+            "       ap.user_id AS student_id,",
+            "       atp.assignment_id,",
+            "       ass.assignment_title,",
+            "       ap.reason_text,",
+            "       ap.appeal_status,",
+            "       ap.created_at",
+            "FROM qb_appeal ap",
+            "LEFT JOIN qb_answer a ON a.id = ap.answer_id",
+            "LEFT JOIN qb_attempt atp ON atp.id = a.attempt_id",
+            "LEFT JOIN qb_assignment ass ON ass.id = atp.assignment_id",
             "WHERE 1=1",
-            "<if test='status != null'>",
-            "  AND appeal_status=#{status}",
+            "<if test='ownerId != null'>",
+            "  AND ass.created_by = #{ownerId}",
             "</if>",
-            "ORDER BY created_at DESC, id DESC",
+            "<if test='status != null'>",
+            "  AND ap.appeal_status=#{status}",
+            "</if>",
+            "ORDER BY ap.created_at DESC, ap.id DESC",
             "LIMIT #{offset}, #{size}",
             "</script>"
     })
     List<TeacherAppealItemVO> pageForTeacher(@Param("status") Integer status,
+                                             @Param("ownerId") Long ownerId,
                                              @Param("offset") long offset,
                                              @Param("size") long size);
 

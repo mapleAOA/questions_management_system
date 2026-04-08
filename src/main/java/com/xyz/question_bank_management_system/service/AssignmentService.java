@@ -23,7 +23,7 @@ public interface AssignmentService {
     /**
      * teacherId: 教师本人（教师端列表）；isAdmin=true 时忽略 teacherId 返回全量。
      */
-    PageResponse<QbAssignment> pageMineOrAll(long page, long size, Long teacherId, boolean isAdmin);
+    PageResponse<QbAssignment> pageMineOrAll(long page, long size, String keyword, Long teacherId, boolean isAdmin);
 
     QbAssignment detail(Long assignmentId, Long actorId, boolean isAdmin);
 

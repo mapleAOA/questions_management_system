@@ -27,17 +27,58 @@ public interface QbAssignmentMapper {
     @Update("UPDATE qb_assignment SET publish_status=#{status}, updated_at=NOW(3) WHERE id=#{id} AND is_deleted=0")
     int updatePublishStatus(@Param("id") Long id, @Param("status") Integer status);
 
-    @Select("SELECT * FROM qb_assignment WHERE is_deleted=0 ORDER BY created_at DESC, id DESC LIMIT #{offset}, #{size}")
-    List<QbAssignment> pageAll(@Param("offset") long offset, @Param("size") long size);
+    @Select({
+            "<script>",
+            "SELECT * FROM qb_assignment",
+            "WHERE is_deleted = 0",
+            "<if test='keyword != null and keyword != \"\"'>",
+            "  AND (assignment_title LIKE CONCAT('%', #{keyword}, '%') OR CAST(id AS CHAR) LIKE CONCAT('%', #{keyword}, '%'))",
+            "</if>",
+            "ORDER BY created_at DESC, id DESC",
+            "LIMIT #{offset}, #{size}",
+            "</script>"
+    })
+    List<QbAssignment> pageAll(@Param("keyword") String keyword,
+                               @Param("offset") long offset,
+                               @Param("size") long size);
 
-    @Select("SELECT COUNT(1) FROM qb_assignment WHERE is_deleted=0")
-    long countAll();
+    @Select({
+            "<script>",
+            "SELECT COUNT(1) FROM qb_assignment",
+            "WHERE is_deleted = 0",
+            "<if test='keyword != null and keyword != \"\"'>",
+            "  AND (assignment_title LIKE CONCAT('%', #{keyword}, '%') OR CAST(id AS CHAR) LIKE CONCAT('%', #{keyword}, '%'))",
+            "</if>",
+            "</script>"
+    })
+    long countAll(@Param("keyword") String keyword);
 
-    @Select("SELECT * FROM qb_assignment WHERE created_by=#{teacherId} AND is_deleted=0 ORDER BY created_at DESC, id DESC LIMIT #{offset}, #{size}")
-    List<QbAssignment> pageByTeacher(@Param("teacherId") Long teacherId, @Param("offset") long offset, @Param("size") long size);
+    @Select({
+            "<script>",
+            "SELECT * FROM qb_assignment",
+            "WHERE created_by = #{teacherId} AND is_deleted = 0",
+            "<if test='keyword != null and keyword != \"\"'>",
+            "  AND (assignment_title LIKE CONCAT('%', #{keyword}, '%') OR CAST(id AS CHAR) LIKE CONCAT('%', #{keyword}, '%'))",
+            "</if>",
+            "ORDER BY created_at DESC, id DESC",
+            "LIMIT #{offset}, #{size}",
+            "</script>"
+    })
+    List<QbAssignment> pageByTeacher(@Param("teacherId") Long teacherId,
+                                     @Param("keyword") String keyword,
+                                     @Param("offset") long offset,
+                                     @Param("size") long size);
 
-    @Select("SELECT COUNT(1) FROM qb_assignment WHERE created_by=#{teacherId} AND is_deleted=0")
-    long countByTeacher(@Param("teacherId") Long teacherId);
+    @Select({
+            "<script>",
+            "SELECT COUNT(1) FROM qb_assignment",
+            "WHERE created_by = #{teacherId} AND is_deleted = 0",
+            "<if test='keyword != null and keyword != \"\"'>",
+            "  AND (assignment_title LIKE CONCAT('%', #{keyword}, '%') OR CAST(id AS CHAR) LIKE CONCAT('%', #{keyword}, '%'))",
+            "</if>",
+            "</script>"
+    })
+    long countByTeacher(@Param("teacherId") Long teacherId, @Param("keyword") String keyword);
 
     @Select({
             "<script>",

@@ -20,4 +20,7 @@ public interface QbAssignmentTargetClassMapper {
 
     @Select("SELECT COUNT(1) FROM qb_assignment_target_class tc JOIN qb_class_member cm ON cm.class_id=tc.class_id WHERE tc.assignment_id=#{assignmentId} AND cm.student_id=#{studentId}")
     long countByAssignmentAndStudent(@Param("assignmentId") Long assignmentId, @Param("studentId") Long studentId);
+
+    @Select("SELECT class_id FROM qb_assignment_target_class WHERE assignment_id=#{assignmentId} ORDER BY class_id ASC")
+    List<Long> listClassIdsByAssignmentId(@Param("assignmentId") Long assignmentId);
 }

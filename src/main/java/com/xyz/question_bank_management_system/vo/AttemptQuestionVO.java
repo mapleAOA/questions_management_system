@@ -2,6 +2,8 @@ package com.xyz.question_bank_management_system.vo;
 
 import lombok.Data;
 
+import java.time.LocalDateTime;
+
 @Data
 public class AttemptQuestionVO {
     private Long attemptQuestionId;
@@ -14,4 +16,8 @@ public class AttemptQuestionVO {
     private Long answerId;
     private String answerContent;
     private Integer answerStatus;
+    private Integer attemptStatus;
+    private Integer timeLimitMin;
+    private LocalDateTime deadlineAt;
+    private Integer remainingSec;
 }

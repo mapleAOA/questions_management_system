@@ -45,11 +45,15 @@ public interface QbAnswerMapper {
             "SELECT COUNT(1)",
             "FROM qb_answer a",
             "JOIN qb_attempt atp ON atp.id = a.attempt_id",
+            "LEFT JOIN qb_assignment ass ON ass.id = atp.assignment_id",
             "LEFT JOIN qb_grading_record gr ON gr.id = (",
             "  SELECT g2.id FROM qb_grading_record g2",
             "  WHERE g2.answer_id = a.id ORDER BY g2.id DESC LIMIT 1",
             ")",
             "WHERE 1=1",
+            "<if test='ownerId != null'>",
+            "  AND ass.created_by = #{ownerId}",
+            "</if>",
             "<if test='assignmentId != null'>",
             "  AND atp.assignment_id = #{assignmentId}",
             "</if>",
@@ -58,7 +62,9 @@ public interface QbAnswerMapper {
             "</if>",
             "</script>"
     })
-    long countTeacherReview(@Param("assignmentId") Long assignmentId, @Param("needsReview") Integer needsReview);
+    long countTeacherReview(@Param("assignmentId") Long assignmentId,
+                            @Param("needsReview") Integer needsReview,
+                            @Param("ownerId") Long ownerId);
 
     @Select({
             "SELECT COUNT(1)",
@@ -84,12 +90,16 @@ public interface QbAnswerMapper {
             "       COALESCE(gr.needs_review, 0) AS needs_review",
             "FROM qb_answer a",
             "JOIN qb_attempt atp ON atp.id = a.attempt_id",
+            "LEFT JOIN qb_assignment ass ON ass.id = atp.assignment_id",
             "LEFT JOIN qb_attempt_question aq ON aq.id = a.attempt_question_id",
             "LEFT JOIN qb_grading_record gr ON gr.id = (",
             "  SELECT g2.id FROM qb_grading_record g2",
             "  WHERE g2.answer_id = a.id ORDER BY g2.id DESC LIMIT 1",
             ")",
             "WHERE 1=1",
+            "<if test='ownerId != null'>",
+            "  AND ass.created_by = #{ownerId}",
+            "</if>",
             "<if test='assignmentId != null'>",
             "  AND atp.assignment_id = #{assignmentId}",
             "</if>",
@@ -102,6 +112,7 @@ public interface QbAnswerMapper {
     })
     List<TeacherReviewAnswerItemVO> pageTeacherReview(@Param("assignmentId") Long assignmentId,
                                                       @Param("needsReview") Integer needsReview,
+                                                      @Param("ownerId") Long ownerId,
                                                       @Param("offset") long offset,
                                                       @Param("size") long size);
 

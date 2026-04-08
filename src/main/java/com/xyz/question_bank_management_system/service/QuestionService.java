@@ -18,6 +18,8 @@ public interface QuestionService {
 
     QuestionDetailVO detail(Long questionId, Long actorId, boolean isAdmin);
 
+    QuestionDetailVO detailForViewer(Long questionId, Long actorId, boolean isTeacher, boolean isAdmin);
+
     PageResponse<QuestionListItemVO> search(QuestionSearchQuery query, long page, long size);
 
     void publish(Long questionId, Long actorId, boolean isAdmin);

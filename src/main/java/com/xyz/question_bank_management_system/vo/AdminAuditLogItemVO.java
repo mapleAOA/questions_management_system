@@ -9,6 +9,7 @@ public class AdminAuditLogItemVO {
     private Long logId;
     private String username;
     private String action;
+    private String operationLabel;
     private String entityType;
     private Long entityId;
     private String beforeJson;

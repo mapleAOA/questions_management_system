@@ -12,7 +12,11 @@ public interface AppealService {
     //student appeal
     PageResponse<AppealMyItemVO> pageMyAppeals(Long userId, Integer status, long page, long size);
     //appeal pages in teachers' view
-    PageResponse<TeacherAppealItemVO> pageTeacherAppeals(Integer status, long page, long size);
+    PageResponse<TeacherAppealItemVO> pageTeacherAppeals(Integer status,
+                                                         long page,
+                                                         long size,
+                                                         Long actorId,
+                                                         boolean isAdmin);
 
-    void handleAppeal(Long appealId, AppealHandleRequest request, Long handlerId);
+    void handleAppeal(Long appealId, AppealHandleRequest request, Long handlerId, boolean isAdmin);
 }

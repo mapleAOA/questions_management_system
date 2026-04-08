@@ -147,7 +147,26 @@ public class QuestionServiceImpl implements QuestionService {
     @Override
     public QuestionDetailVO detail(Long questionId, Long actorId, boolean isAdmin) {
         QbQuestion q = loadQuestionForManage(questionId, actorId, isAdmin);
+        return buildQuestionDetail(q, true);
+    }
 
+    @Override
+    public QuestionDetailVO detailForViewer(Long questionId, Long actorId, boolean isTeacher, boolean isAdmin) {
+        QbQuestion q = questionMapper.selectById(questionId);
+        if (q == null) {
+            throw BizException.of(ErrorCode.NOT_FOUND, "棰樼洰涓嶅瓨鍦?");
+        }
+        if (isAdmin || (isTeacher && Objects.equals(q.getCreatedBy(), actorId))) {
+            return buildQuestionDetail(q, true);
+        }
+        if (!Objects.equals(q.getStatus(), QuestionStatusEnum.PUBLISHED.getCode())
+                || !Objects.equals(q.getBankReviewStatus(), QuestionBankReviewStatusEnum.APPROVED.getCode())) {
+            throw BizException.of(ErrorCode.FORBIDDEN, "鏃犳潈鏌ョ湅璇ラ鐩?");
+        }
+        return buildQuestionDetail(q, true);
+    }
+
+    private QuestionDetailVO buildQuestionDetail(QbQuestion q, boolean includeLlmAnalyses) {
         QuestionDetailVO vo = new QuestionDetailVO();
         vo.setId(q.getId());
         vo.setTitle(q.getTitle());
@@ -170,7 +189,7 @@ public class QuestionServiceImpl implements QuestionService {
         vo.setCreatedAt(q.getCreatedAt());
         vo.setUpdatedAt(q.getUpdatedAt());
 
-        List<QbQuestionOption> opts = optionMapper.selectByQuestionId(questionId);
+        List<QbQuestionOption> opts = optionMapper.selectByQuestionId(q.getId());
         List<QuestionDetailVO.QuestionOptionVO> optVos = new ArrayList<>();
         for (QbQuestionOption o : opts) {
             QuestionDetailVO.QuestionOptionVO ov = new QuestionDetailVO.QuestionOptionVO();
@@ -183,10 +202,10 @@ public class QuestionServiceImpl implements QuestionService {
         }
         vo.setOptions(optVos);
 
-        vo.setTagIds(questionTagMapper.selectTagIdsByQuestionId(questionId));
-        vo.setTagNames(questionTagMapper.selectTagNamesByQuestionId(questionId));
+        vo.setTagIds(questionTagMapper.selectTagIdsByQuestionId(q.getId()));
+        vo.setTagNames(questionTagMapper.selectTagNamesByQuestionId(q.getId()));
 
-        List<QbQuestionCase> cases = caseMapper.selectByQuestionId(questionId);
+        List<QbQuestionCase> cases = caseMapper.selectByQuestionId(q.getId());
         List<QuestionDetailVO.QuestionCaseVO> caseVos = new ArrayList<>();
         for (QbQuestionCase c : cases) {
             QuestionDetailVO.QuestionCaseVO cv = new QuestionDetailVO.QuestionCaseVO();
@@ -199,7 +218,7 @@ public class QuestionServiceImpl implements QuestionService {
             caseVos.add(cv);
         }
         vo.setCases(caseVos);
-        vo.setLlmAnalyses(buildLatestLlmAnalyses(questionId));
+        vo.setLlmAnalyses(includeLlmAnalyses ? buildLatestLlmAnalyses(q.getId()) : List.of());
         return vo;
     }
 

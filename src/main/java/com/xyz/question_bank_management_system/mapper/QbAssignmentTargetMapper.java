@@ -17,4 +17,7 @@ public interface QbAssignmentTargetMapper {
 
     @Select("SELECT COUNT(1) FROM qb_assignment_target WHERE assignment_id=#{assignmentId} AND user_id=#{userId}")
     long countByAssignmentAndUser(@Param("assignmentId") Long assignmentId, @Param("userId") Long userId);
+
+    @Select("SELECT user_id FROM qb_assignment_target WHERE assignment_id=#{assignmentId} ORDER BY user_id ASC")
+    List<Long> listUserIdsByAssignmentId(@Param("assignmentId") Long assignmentId);
 }
