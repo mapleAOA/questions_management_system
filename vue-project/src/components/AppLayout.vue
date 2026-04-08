@@ -35,9 +35,9 @@ const menus = computed(() => {
     { path: '/appeals/my', title: '我的申诉', icon: Warning, roles: ['STUDENT'] },
 
     { path: '/questions', title: '题目管理', icon: Reading, roles: ['TEACHER', 'ADMIN'] },
-    { path: '/tags', title: '标签管理', icon: CollectionTag, roles: ['TEACHER', 'ADMIN'] },
+    { path: '/tags', title: '标签管理', icon: CollectionTag, roles: ['ADMIN'] },
     { path: '/papers', title: '试卷管理', icon: Document, roles: ['TEACHER', 'ADMIN'] },
-    { path: '/assignments/manage', title: '作业管理', icon: Calendar, roles: ['TEACHER', 'ADMIN'] },
+    { path: '/assignments/manage', title: '作业/考试管理', icon: Calendar, roles: ['TEACHER', 'ADMIN'] },
     { path: '/classes/manage', title: '班级管理', icon: UserFilled, roles: ['TEACHER', 'ADMIN'] },
     { path: '/teacher/review', title: '复核中心', icon: Management, roles: ['TEACHER', 'ADMIN'] },
     { path: '/llm/calls', title: '大模型调用记录', icon: Cpu, roles: ['TEACHER', 'ADMIN'] },

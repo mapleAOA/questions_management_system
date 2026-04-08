@@ -18,6 +18,13 @@ export const QUESTION_STATUS_OPTIONS = [
   { value: 3, label: '已归档', type: 'warning' },
 ]
 
+export const QUESTION_BANK_REVIEW_STATUS_OPTIONS = [
+  { value: 0, label: '仅自己使用', type: 'info' },
+  { value: 1, label: '待审核', type: 'warning' },
+  { value: 2, label: '已入总题库', type: 'success' },
+  { value: 3, label: '未通过', type: 'danger' },
+]
+
 export const ASSIGNMENT_STATUS_OPTIONS = [
   { value: 1, label: '草稿', type: 'info' },
   { value: 2, label: '已发布', type: 'success' },
@@ -62,8 +69,7 @@ export const TAG_TYPE_OPTIONS = [
 
 export const PAPER_TYPE_OPTIONS = [
   { value: 1, label: '作业' },
-  { value: 2, label: '考试' },
-  { value: 3, label: '练习模板' },
+  { value: 2, label: '试卷' },
 ]
 
 export const CHAPTER_OPTIONS = [

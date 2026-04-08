@@ -111,10 +111,30 @@ export const questionApi = {
       method: 'post',
     })
   },
-  generateLlmAnalysis(questionId) {
+  submitBankReview(questionId) {
+    return request({
+      url: `/api/questions/${questionId}/bank-review/submit`,
+      method: 'post',
+    })
+  },
+  cancelBankReview(questionId) {
+    return request({
+      url: `/api/questions/${questionId}/bank-review/cancel`,
+      method: 'post',
+    })
+  },
+  reviewBankQuestion(questionId, payload) {
+    return request({
+      url: `/api/questions/${questionId}/bank-review`,
+      method: 'post',
+      data: payload,
+    })
+  },
+  generateLlmAnalysis(questionId, payload = {}) {
     return request({
       url: `/api/questions/${questionId}/analysis/llm`,
       method: 'post',
+      data: payload,
       timeout: 8000,
     })
   },
@@ -179,12 +199,6 @@ export const paperApi = {
     return request({
       url: `/api/papers/questions/${paperQuestionId}`,
       method: 'delete',
-    })
-  },
-  recalculate(paperId) {
-    return request({
-      url: `/api/papers/${paperId}/recalculate`,
-      method: 'post',
     })
   },
 }
@@ -262,6 +276,25 @@ export const classApi = {
   mine() {
     return request({
       url: '/api/classes/mine',
+      method: 'get',
+    })
+  },
+  update(classId, payload) {
+    return request({
+      url: `/api/classes/${classId}`,
+      method: 'put',
+      data: payload,
+    })
+  },
+  remove(classId) {
+    return request({
+      url: `/api/classes/${classId}`,
+      method: 'delete',
+    })
+  },
+  teacherOptions() {
+    return request({
+      url: '/api/classes/teachers',
       method: 'get',
     })
   },
@@ -503,6 +536,13 @@ export const adminApi = {
   loginLogs(params) {
     return request({
       url: '/api/admin/login-logs',
+      method: 'get',
+      params: clean(params),
+    })
+  },
+  auditLogs(params) {
+    return request({
+      url: '/api/admin/audit-logs',
       method: 'get',
       params: clean(params),
     })

@@ -24,7 +24,7 @@ const currentSnapshot = computed(() => parseJsonSafe(currentQuestion.value?.snap
 const currentQuestionType = computed(() => Number(currentSnapshot.value.questionType || 0))
 const currentOptions = computed(() => {
   const raw = Array.isArray(currentSnapshot.value.options) ? currentSnapshot.value.options : []
-  return [...raw].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+  return [...raw]
 })
 const currentCases = computed(() => {
   const raw = Array.isArray(currentSnapshot.value.cases) ? currentSnapshot.value.cases : []

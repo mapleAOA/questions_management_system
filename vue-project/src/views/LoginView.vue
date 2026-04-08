@@ -66,7 +66,7 @@ async function handleRegister() {
     <div class="login-card">
       <div class="login-brand">
         <h1>C语言课程题库系统</h1>
-        <p>题库与作业管理系统</p>
+        <p>题库与作业/考试管理系统</p>
       </div>
 
       <el-radio-group v-model="mode" class="mode-switch">

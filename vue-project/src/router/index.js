@@ -81,7 +81,7 @@ const routes = [
         path: 'tags',
         name: 'tags',
         component: () => import('@/views/TagManageView.vue'),
-        meta: { roles: ['TEACHER', 'ADMIN'], title: '标签管理' },
+        meta: { roles: ['ADMIN'], title: '标签管理' },
       },
       {
         path: 'papers',
@@ -93,7 +93,7 @@ const routes = [
         path: 'assignments/manage',
         name: 'manage-assignments',
         component: () => import('@/views/AssignmentManageView.vue'),
-        meta: { roles: ['TEACHER', 'ADMIN'], title: '作业管理' },
+        meta: { roles: ['TEACHER', 'ADMIN'], title: '作业/考试管理' },
       },
       {
         path: 'classes/manage',

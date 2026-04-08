@@ -24,9 +24,7 @@ const form = reactive({
   endTime: '',
   timeLimitMin: 0,
   maxAttempts: 1,
-  shuffleQuestions: 0,
   shuffleOptions: 0,
-  publishStatus: 1,
 })
 
 const targetVisible = ref(false)
@@ -74,7 +72,7 @@ async function loadData() {
     list.value = data.list || []
     total.value = data.total || 0
   } catch (error) {
-    ElMessage.error(error.message || '加载作业失败')
+    ElMessage.error(error.message || '加载作业/考试失败')
   } finally {
     loading.value = false
   }
@@ -89,9 +87,7 @@ function resetForm() {
   form.endTime = ''
   form.timeLimitMin = 0
   form.maxAttempts = 1
-  form.shuffleQuestions = 0
   form.shuffleOptions = 0
-  form.publishStatus = 1
 }
 
 function openCreate() {
@@ -108,9 +104,7 @@ function openEdit(row) {
   form.endTime = toLocalDateTimeString(row.endTime) || ''
   form.timeLimitMin = row.timeLimitMin ?? 0
   form.maxAttempts = row.maxAttempts ?? 1
-  form.shuffleQuestions = row.shuffleQuestions ?? 0
   form.shuffleOptions = row.shuffleOptions ?? 0
-  form.publishStatus = row.publishStatus ?? 1
   dialogVisible.value = true
 }
 
@@ -125,21 +119,19 @@ async function saveAssignment() {
       endTime: form.endTime,
       timeLimitMin: Number(form.timeLimitMin || 0),
       maxAttempts: Number(form.maxAttempts || 1),
-      shuffleQuestions: Number(form.shuffleQuestions || 0),
       shuffleOptions: Number(form.shuffleOptions || 0),
-      publishStatus: Number(form.publishStatus || 1),
     }
     if (editingId.value) {
       await assignmentApi.update(editingId.value, payload)
-      ElMessage.success('作业更新成功')
+      ElMessage.success('作业/考试更新成功')
     } else {
       await assignmentApi.create(payload)
-      ElMessage.success('作业创建成功')
+      ElMessage.success('作业/考试创建成功，当前为草稿状态')
     }
     dialogVisible.value = false
     loadData()
   } catch (error) {
-    ElMessage.error(error.message || '保存作业失败')
+    ElMessage.error(error.message || '保存作业/考试失败')
   } finally {
     saveLoading.value = false
   }
@@ -147,13 +139,13 @@ async function saveAssignment() {
 
 async function removeAssignment(id) {
   try {
-    await ElMessageBox.confirm('确认删除该作业？', '提示', { type: 'warning' })
+    await ElMessageBox.confirm('确认删除该作业/考试？', '提示', { type: 'warning' })
     await assignmentApi.remove(id)
-    ElMessage.success('作业已删除')
+    ElMessage.success('作业/考试已删除')
     loadData()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(error.message || '删除作业失败')
+      ElMessage.error(error.message || '删除作业/考试失败')
     }
   }
 }
@@ -161,20 +153,20 @@ async function removeAssignment(id) {
 async function publishAssignment(id) {
   try {
     await assignmentApi.publish(id)
-    ElMessage.success('作业已发布')
+    ElMessage.success('作业/考试已发布')
     loadData()
   } catch (error) {
-    ElMessage.error(error.message || '发布作业失败')
+    ElMessage.error(error.message || '发布作业/考试失败')
   }
 }
 
 async function closeAssignment(id) {
   try {
     await assignmentApi.close(id)
-    ElMessage.success('作业已关闭')
+    ElMessage.success('作业/考试已关闭')
     loadData()
   } catch (error) {
-    ElMessage.error(error.message || '关闭作业失败')
+    ElMessage.error(error.message || '关闭作业/考试失败')
   }
 }
 
@@ -212,9 +204,9 @@ onMounted(async () => {
 
 <template>
   <el-card class="page-card">
-    <h3 class="card-title">作业管理</h3>
+    <h3 class="card-title">作业/考试管理</h3>
     <div class="page-toolbar">
-      <el-button type="success" @click="openCreate">新建作业</el-button>
+      <el-button type="success" @click="openCreate">新建作业/考试</el-button>
       <el-button type="primary" @click="loadData">刷新</el-button>
     </div>
 
@@ -260,8 +252,14 @@ onMounted(async () => {
     />
   </el-card>
 
-  <el-dialog v-model="dialogVisible" :title="editingId ? '编辑作业' : '新建作业'" width="760px">
+  <el-dialog v-model="dialogVisible" :title="editingId ? '编辑作业/考试' : '新建作业/考试'" width="760px">
     <el-form label-width="110px">
+      <el-alert
+        title="保存后默认为草稿，可在列表中再执行发布。题目顺序固定，选项乱序不会影响客观题判分。"
+        type="info"
+        :closable="false"
+        style="margin-bottom: 16px"
+      />
       <el-form-item label="试卷">
         <el-select v-model="form.paperId" filterable style="width: 100%">
           <el-option v-for="paper in papers" :key="paper.id" :value="paper.id" :label="`${paper.id} - ${paper.paperTitle}`" />
@@ -291,29 +289,17 @@ onMounted(async () => {
         />
       </el-form-item>
       <el-row :gutter="12">
-        <el-col :span="8">
+        <el-col :span="12">
           <el-form-item label="限时(分钟)">
             <el-input-number v-model="form.timeLimitMin" :min="0" />
           </el-form-item>
         </el-col>
-        <el-col :span="8">
+        <el-col :span="12">
           <el-form-item label="最大作答次数">
             <el-input-number v-model="form.maxAttempts" :min="1" />
           </el-form-item>
         </el-col>
-        <el-col :span="8">
-          <el-form-item label="状态">
-            <el-select v-model="form.publishStatus" style="width: 100%">
-              <el-option :value="1" label="草稿" />
-              <el-option :value="2" label="已发布" />
-              <el-option :value="3" label="已关闭" />
-            </el-select>
-          </el-form-item>
-        </el-col>
       </el-row>
-      <el-form-item label="题目乱序">
-        <el-switch v-model="form.shuffleQuestions" :active-value="1" :inactive-value="0" />
-      </el-form-item>
       <el-form-item label="选项乱序">
         <el-switch v-model="form.shuffleOptions" :active-value="1" :inactive-value="0" />
       </el-form-item>

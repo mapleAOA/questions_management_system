@@ -16,10 +16,10 @@ const shortcuts = computed(() => {
     { title: '我的申诉', desc: '提交成绩申诉', path: '/appeals/my', roles: ['STUDENT'] },
 
     { title: '题目管理', desc: '题目检索与编辑', path: '/questions', roles: ['TEACHER', 'ADMIN'] },
-    { title: '标签管理', desc: '树形标签维护', path: '/tags', roles: ['TEACHER', 'ADMIN'] },
+    { title: '标签管理', desc: '树形标签维护', path: '/tags', roles: ['ADMIN'] },
     { title: '试卷管理', desc: '组卷与快照', path: '/papers', roles: ['TEACHER', 'ADMIN'] },
-    { title: '作业管理', desc: '发布与截止控制', path: '/assignments/manage', roles: ['TEACHER', 'ADMIN'] },
-    { title: '班级管理', desc: '创建班级并查看学生', path: '/classes/manage', roles: ['TEACHER', 'ADMIN'] },
+    { title: '作业/考试管理', desc: '发布与截止控制', path: '/assignments/manage', roles: ['TEACHER', 'ADMIN'] },
+    { title: '班级管理', desc: '维护班级并查看学生', path: '/classes/manage', roles: ['TEACHER', 'ADMIN'] },
     { title: '复核中心', desc: '人工复核与申诉处理', path: '/teacher/review', roles: ['TEACHER', 'ADMIN'] },
     { title: '大模型记录', desc: '查看每次调用证据', path: '/llm/calls', roles: ['TEACHER', 'ADMIN'] },
 

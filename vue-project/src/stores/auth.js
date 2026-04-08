@@ -62,7 +62,7 @@ export const useAuthStore = defineStore('auth', {
     async login(payload) {
       const result = await authApi.login(payload)
       if (!result?.success || !result?.token) {
-        throw new Error(result?.msg || 'login failed')
+        throw new Error(result?.msg || '登录失败')
       }
       this.setSession(result.token, result.user)
       return result.user
@@ -70,7 +70,7 @@ export const useAuthStore = defineStore('auth', {
     async register(payload) {
       const result = await authApi.register(payload)
       if (!result?.success || !result?.token) {
-        throw new Error(result?.msg || 'register failed')
+        throw new Error(result?.msg || '注册失败')
       }
       this.setSession(result.token, result.user)
       return result.user
