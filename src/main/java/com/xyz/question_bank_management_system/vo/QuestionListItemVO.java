@@ -13,6 +13,8 @@ public class QuestionListItemVO {
     private Integer difficulty;
     private String chapter;
     private Integer status;
+    private Integer bankReviewStatus;
+    private String bankReviewComment;
     private Long createdBy;
     private LocalDateTime updatedAt;
     private List<Long> tagIds;

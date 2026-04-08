@@ -16,11 +16,14 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/**
- * 轻量 JWT 工具（HS256），不额外引入 jjwt 依赖。
- */
 @Component
 public class JwtUtil {
+
+    private static final String MSG_INIT_FAILED = "\u521d\u59cb\u5316 JwtUtil \u5931\u8d25";
+    private static final String MSG_TOKEN_FORMAT_ERROR = "\u4ee4\u724c\u683c\u5f0f\u9519\u8bef";
+    private static final String MSG_TOKEN_SIGN_ERROR = "\u4ee4\u724c\u7b7e\u540d\u65e0\u6548";
+    private static final String MSG_TOKEN_EXPIRED = "\u767b\u5f55\u4ee4\u724c\u5df2\u8fc7\u671f";
+    private static final String MSG_TOKEN_PARSE_FAILED = "\u4ee4\u724c\u89e3\u6790\u5931\u8d25";
 
     @Value("${app.jwt.secret}")
     private String secret;
@@ -39,7 +42,7 @@ public class JwtUtil {
             mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
             this.hmacSha256 = mac;
         } catch (Exception e) {
-            throw new IllegalStateException("Init JwtUtil failed", e);
+            throw new IllegalStateException(MSG_INIT_FAILED, e);
         }
     }
 
@@ -69,12 +72,12 @@ public class JwtUtil {
         try {
             String[] parts = token.split("\\.");
             if (parts.length != 3) {
-                throw BizException.of(ErrorCode.UNAUTHORIZED, "token格式错误");
+                throw BizException.of(ErrorCode.UNAUTHORIZED, MSG_TOKEN_FORMAT_ERROR);
             }
             String signingInput = parts[0] + "." + parts[1];
             String expectedSig = base64Url(hmac(signingInput));
             if (!constantTimeEquals(expectedSig, parts[2])) {
-                throw BizException.of(ErrorCode.UNAUTHORIZED, "token签名无效");
+                throw BizException.of(ErrorCode.UNAUTHORIZED, MSG_TOKEN_SIGN_ERROR);
             }
             String payloadJson = new String(Base64.getUrlDecoder().decode(parts[1]), StandardCharsets.UTF_8);
             @SuppressWarnings("unchecked")
@@ -83,7 +86,7 @@ public class JwtUtil {
             long exp = ((Number) payload.get("exp")).longValue();
             long now = Instant.now().getEpochSecond();
             if (now >= exp) {
-                throw BizException.of(ErrorCode.UNAUTHORIZED, "token已过期");
+                throw BizException.of(ErrorCode.UNAUTHORIZED, MSG_TOKEN_EXPIRED);
             }
 
             long uid = ((Number) payload.get("uid")).longValue();
@@ -93,17 +96,15 @@ public class JwtUtil {
         } catch (BizException e) {
             throw e;
         } catch (Exception e) {
-            throw BizException.of(ErrorCode.UNAUTHORIZED, "token解析失败");
+            throw BizException.of(ErrorCode.UNAUTHORIZED, MSG_TOKEN_PARSE_FAILED);
         }
     }
 
     private byte[] hmac(String input) {
-        // Mac 不是线程安全的，这里做一个 clone。
         try {
             Mac mac = (Mac) hmacSha256.clone();
             return mac.doFinal(input.getBytes(StandardCharsets.UTF_8));
         } catch (CloneNotSupportedException e) {
-            // fallback
             synchronized (this) {
                 return hmacSha256.doFinal(input.getBytes(StandardCharsets.UTF_8));
             }

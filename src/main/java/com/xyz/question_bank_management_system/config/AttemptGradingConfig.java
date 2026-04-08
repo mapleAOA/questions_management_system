@@ -20,4 +20,17 @@ public class AttemptGradingConfig {
         executor.initialize();
         return executor;
     }
+
+    @Bean(name = "llmAnalysisExecutor")
+    public TaskExecutor llmAnalysisExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(3);
+        executor.setMaxPoolSize(6);
+        executor.setQueueCapacity(128);
+        executor.setThreadNamePrefix("question-llm-analysis-");
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(30);
+        executor.initialize();
+        return executor;
+    }
 }

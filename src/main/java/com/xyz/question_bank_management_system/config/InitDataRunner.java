@@ -12,12 +12,16 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
-import java.util.List;
-
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class InitDataRunner implements CommandLineRunner {
+
+    private static final String ROLE_STUDENT = "\u5b66\u751f";
+    private static final String ROLE_TEACHER = "\u6559\u5e08";
+    private static final String ROLE_ADMIN = "\u7ba1\u7406\u5458";
+    private static final String DEFAULT_ADMIN_NAME = "\u7cfb\u7edf\u7ba1\u7406\u5458";
+    private static final String INIT_ADMIN_LOG = "\u5df2\u521d\u59cb\u5316\u9ed8\u8ba4\u7ba1\u7406\u5458\u8d26\u53f7\uff1a{}\u3002\u4e3a\u4fdd\u8bc1\u5b89\u5168\uff0c\u8bf7\u5c3d\u5feb\u4fee\u6539\u5bc6\u7801\u3002";
 
     private final SysUserMapper sysUserMapper;
     private final SysRoleMapper sysRoleMapper;
@@ -39,18 +43,16 @@ public class InitDataRunner implements CommandLineRunner {
             return;
         }
 
-        // 1) 确保基础角色存在
-        ensureRole("STUDENT", "学生");
-        ensureRole("TEACHER", "教师");
-        ensureRole("ADMIN", "管理员");
+        ensureRole("STUDENT", ROLE_STUDENT);
+        ensureRole("TEACHER", ROLE_TEACHER);
+        ensureRole("ADMIN", ROLE_ADMIN);
 
-        // 2) 确保有一个管理员账号可登录（开发环境）
         SysUser existing = sysUserMapper.selectByUsername(adminUsername);
         if (existing == null) {
             SysUser u = new SysUser();
             u.setUsername(adminUsername);
             u.setPasswordHash(passwordEncoder.encode(adminPassword));
-            u.setDisplayName("系统管理员");
+            u.setDisplayName(DEFAULT_ADMIN_NAME);
             u.setEmail("admin@example.com");
             u.setStatus(1);
             u.setIsDeleted(0);
@@ -60,7 +62,7 @@ public class InitDataRunner implements CommandLineRunner {
             if (adminRole != null) {
                 sysUserRoleMapper.insert(u.getId(), adminRole.getId());
             }
-            log.warn("Initialized default admin user: {} / {} (please change in production)", adminUsername, adminPassword);
+            log.warn(INIT_ADMIN_LOG, adminUsername);
         }
     }
 

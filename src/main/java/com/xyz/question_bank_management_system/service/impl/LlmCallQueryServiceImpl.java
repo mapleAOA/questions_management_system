@@ -44,7 +44,7 @@ public class LlmCallQueryServiceImpl implements LlmCallQueryService {
                 ? llmCallMapper.selectById(llmCallId)
                 : llmCallMapper.selectByIdForTeacher(llmCallId, viewerId);
         if (call == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "llm call not found");
+            throw BizException.of(ErrorCode.NOT_FOUND, "大模型调用记录不存在");
         }
         LlmCallDetailVO vo = new LlmCallDetailVO();
         vo.setLlmCallId(call.getId());

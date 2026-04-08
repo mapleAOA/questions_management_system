@@ -5,6 +5,6 @@ import lombok.Data;
 
 @Data
 public class JoinClassRequest {
-    @NotBlank(message = "classCode cannot be empty")
+    @NotBlank(message = "班级邀请码不能为空")
     private String classCode;
 }

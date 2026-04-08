@@ -12,9 +12,11 @@ import com.xyz.question_bank_management_system.exception.BizException;
 import com.xyz.question_bank_management_system.exception.ErrorCode;
 import com.xyz.question_bank_management_system.mapper.*;
 import com.xyz.question_bank_management_system.service.AttemptService;
+import com.xyz.question_bank_management_system.service.AuditLogService;
 import com.xyz.question_bank_management_system.service.LlmService;
 import com.xyz.question_bank_management_system.service.UserAbilityService;
 import com.xyz.question_bank_management_system.util.HashUtil;
+import com.xyz.question_bank_management_system.util.LlmPromptBuilder;
 import com.xyz.question_bank_management_system.util.PageParamUtil;
 import com.xyz.question_bank_management_system.util.TextRepairUtil;
 import com.xyz.question_bank_management_system.vo.*;
@@ -74,6 +76,7 @@ public class AttemptServiceImpl implements AttemptService {
     private final UserAbilityService userAbilityService;
 
     private final LlmService llmService;
+    private final AuditLogService auditLogService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -89,31 +92,31 @@ public class AttemptServiceImpl implements AttemptService {
     public AttemptStartVO startAssignmentAttempt(Long assignmentId, Long userId) {
         QbAssignment a = assignmentMapper.selectById(assignmentId);
         if (a == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "作业不存在");
+            throw BizException.of(ErrorCode.NOT_FOUND, "\u4f5c\u4e1a\u4e0d\u5b58\u5728");
         }
         if (a.getPublishStatus() == null || a.getPublishStatus() != AssignmentPublishStatusEnum.PUBLISHED.getCode()) {
-            throw BizException.of(ErrorCode.FORBIDDEN, "作业未发布");
+            throw BizException.of(ErrorCode.FORBIDDEN, "\u4f5c\u4e1a\u672a\u53d1\u5e03");
         }
         LocalDateTime now = LocalDateTime.now();
         if (a.getStartTime() != null && now.isBefore(a.getStartTime())) {
-            throw BizException.of(ErrorCode.FORBIDDEN, "作业未开始");
+            throw BizException.of(ErrorCode.FORBIDDEN, "\u4f5c\u4e1a\u672a\u5f00\u59cb");
         }
         if (a.getEndTime() != null && now.isAfter(a.getEndTime())) {
-            throw BizException.of(ErrorCode.FORBIDDEN, "作业已结束");
+            throw BizException.of(ErrorCode.FORBIDDEN, "\u4f5c\u4e1a\u5df2\u7ed3\u675f");
         }
 
         long targetCount = targetMapper.countByAssignmentId(assignmentId);
         if (targetCount > 0) {
             long me = targetMapper.countByAssignmentAndUser(assignmentId, userId);
             if (me <= 0) {
-                throw BizException.of(ErrorCode.FORBIDDEN, "你不在该作业的目标名单中");
+                throw BizException.of(ErrorCode.FORBIDDEN, "\u4f60\u4e0d\u5728\u8be5\u4f5c\u4e1a\u7684\u76ee\u6807\u540d\u5355\u4e2d");
             }
         }
 
         long usedAttempts = attemptMapper.countByAssignmentAndUser(assignmentId, userId);
         int maxAttempts = a.getMaxAttempts() == null ? 1 : a.getMaxAttempts();
         if (maxAttempts > 0 && usedAttempts >= maxAttempts) {
-            throw BizException.of(ErrorCode.FORBIDDEN, "已达到最大作答次数");
+            throw BizException.of(ErrorCode.FORBIDDEN, "\u5df2\u8fbe\u5230\u6700\u5927\u4f5c\u7b54\u6b21\u6570");
         }
 
         int attemptNo = (int) usedAttempts + 1;
@@ -127,16 +130,13 @@ public class AttemptServiceImpl implements AttemptService {
         attempt.setStatus(AttemptStatusEnum.IN_PROGRESS.getCode());
         attemptMapper.insert(attempt);
 
-        // 生成 attempt_question 快照
+        // Create attempt_question snapshots.
         List<QbPaperQuestion> pqs = paperQuestionMapper.selectByPaperId(a.getPaperId());
         if (pqs == null || pqs.isEmpty()) {
-            throw BizException.of(ErrorCode.BIZ_ERROR, "试卷未配置题目");
+            throw BizException.of(ErrorCode.BIZ_ERROR, "\u8bd5\u5377\u672a\u914d\u7f6e\u9898\u76ee");
         }
 
         List<QbPaperQuestion> ordered = new ArrayList<>(pqs);
-        if (a.getShuffleQuestions() != null && a.getShuffleQuestions() == 1) {
-            Collections.shuffle(ordered);
-        }
 
         List<QbAttemptQuestion> aqList = new ArrayList<>();
         int order = 1;
@@ -173,6 +173,12 @@ public class AttemptServiceImpl implements AttemptService {
         }
         attemptQuestionMapper.batchInsert(aqList);
         initAnswersForAttempt(attempt.getId(), userId);
+        recordAudit(userId,
+                "ATTEMPT_START_ASSIGNMENT",
+                "ATTEMPT",
+                attempt.getId(),
+                null,
+                attemptAuditSnapshot(attempt));
 
         return new AttemptStartVO(attempt.getId(), attemptNo, assignmentId, a.getPaperId(), attempt.getStatus());
     }
@@ -207,13 +213,13 @@ public class AttemptServiceImpl implements AttemptService {
             long candidateLimit = Math.max(candidateQuestionLimit * 5L, 50L);
             List<QbQuestion> candidates = questionMapper.searchForPractice(tagIds, chapters, questionTypes, visibleTeacherIds, candidateLimit);
             if (candidates == null || candidates.isEmpty()) {
-                throw BizException.of(ErrorCode.BIZ_ERROR, "no published questions match current scope");
+                throw BizException.of(ErrorCode.BIZ_ERROR, "\u5f53\u524d\u7b5b\u9009\u8303\u56f4\u5185\u6ca1\u6709\u53ef\u7528\u7684\u5df2\u53d1\u5e03\u9898\u76ee");
             }
             Collections.shuffle(candidates);
             selected = pickPracticeQuestionsByScore(candidates, totalScore);
         }
         if (selected == null || selected.isEmpty()) {
-            throw BizException.of(ErrorCode.BIZ_ERROR, "failed to build practice with current scope");
+            throw BizException.of(ErrorCode.BIZ_ERROR, "\u5f53\u524d\u7b5b\u9009\u8303\u56f4\u4e0b\u65e0\u6cd5\u751f\u6210\u7ec3\u4e60");
         }
         int[] scores = buildPracticeScores(selected);
 
@@ -256,6 +262,12 @@ public class AttemptServiceImpl implements AttemptService {
         }
         attemptQuestionMapper.batchInsert(aqList);
         initAnswersForAttempt(attempt.getId(), userId);
+        recordAudit(userId,
+                "ATTEMPT_START_PRACTICE",
+                "ATTEMPT",
+                attempt.getId(),
+                null,
+                attemptAuditSnapshot(attempt));
 
         return new AttemptStartVO(attempt.getId(), attemptNo, null, null, attempt.getStatus());
     }
@@ -263,9 +275,9 @@ public class AttemptServiceImpl implements AttemptService {
     @Override
     public List<AttemptQuestionVO> getAttemptQuestions(Long attemptId, Long userId) {
         QbAttempt attempt = attemptMapper.selectById(attemptId);
-        if (attempt == null) throw BizException.of(ErrorCode.NOT_FOUND, "作答不存在");
+        if (attempt == null) throw BizException.of(ErrorCode.NOT_FOUND, "\u4f5c\u7b54\u4e0d\u5b58\u5728");
         if (!Objects.equals(attempt.getUserId(), userId)) {
-            throw BizException.of(ErrorCode.FORBIDDEN, "无权访问该作答");
+            throw BizException.of(ErrorCode.FORBIDDEN, "\u65e0\u6743\u8bbf\u95ee\u8be5\u4f5c\u7b54");
         }
 
         List<QbAttemptQuestion> aqs = attemptQuestionMapper.selectByAttemptId(attemptId);
@@ -298,13 +310,13 @@ public class AttemptServiceImpl implements AttemptService {
     @Override
     public void saveDraft(Long answerId, Long userId, SaveAnswerDraftRequest request) {
         QbAnswer ans = answerMapper.selectById(answerId);
-        if (ans == null) throw BizException.of(ErrorCode.NOT_FOUND, "答案不存在");
-        if (!Objects.equals(ans.getUserId(), userId)) throw BizException.of(ErrorCode.FORBIDDEN, "无权修改该答案");
+        if (ans == null) throw BizException.of(ErrorCode.NOT_FOUND, "\u7b54\u6848\u4e0d\u5b58\u5728");
+        if (!Objects.equals(ans.getUserId(), userId)) throw BizException.of(ErrorCode.FORBIDDEN, "\u65e0\u6743\u4fee\u6539\u8be5\u7b54\u6848");
         QbAttempt attempt = attemptMapper.selectById(ans.getAttemptId());
-        if (attempt == null) throw BizException.of(ErrorCode.NOT_FOUND, "作答不存在");
-        if (!Objects.equals(attempt.getUserId(), userId)) throw BizException.of(ErrorCode.FORBIDDEN, "无权访问该作答");
+        if (attempt == null) throw BizException.of(ErrorCode.NOT_FOUND, "\u4f5c\u7b54\u4e0d\u5b58\u5728");
+        if (!Objects.equals(attempt.getUserId(), userId)) throw BizException.of(ErrorCode.FORBIDDEN, "\u65e0\u6743\u8bbf\u95ee\u8be5\u4f5c\u7b54");
         if (attempt.getStatus() == null || attempt.getStatus() != AttemptStatusEnum.IN_PROGRESS.getCode()) {
-            throw BizException.of(ErrorCode.FORBIDDEN, "当前状态不允许保存草稿");
+            throw BizException.of(ErrorCode.FORBIDDEN, "\u5f53\u524d\u72b6\u6001\u4e0d\u5141\u8bb8\u4fdd\u5b58\u8349\u7a3f");
         }
         answerMapper.updateDraft(answerId, normalizeAnswerContent(request.getAnswerContent()));
     }
@@ -313,20 +325,20 @@ public class AttemptServiceImpl implements AttemptService {
     public void submitAnswer(Long answerId, Long userId, SaveAnswerDraftRequest request) {
         QbAnswer ans = answerMapper.selectById(answerId);
         if (ans == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "answer not found");
+            throw BizException.of(ErrorCode.NOT_FOUND, "\u7b54\u6848\u4e0d\u5b58\u5728");
         }
         if (!Objects.equals(ans.getUserId(), userId)) {
-            throw BizException.of(ErrorCode.FORBIDDEN, "no permission to submit this answer");
+            throw BizException.of(ErrorCode.FORBIDDEN, "\u65e0\u6743\u63d0\u4ea4\u8be5\u7b54\u6848");
         }
         QbAttempt attempt = attemptMapper.selectById(ans.getAttemptId());
         if (attempt == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "attempt not found");
+            throw BizException.of(ErrorCode.NOT_FOUND, "\u4f5c\u7b54\u4e0d\u5b58\u5728");
         }
         if (!Objects.equals(attempt.getUserId(), userId)) {
-            throw BizException.of(ErrorCode.FORBIDDEN, "no permission to access this attempt");
+            throw BizException.of(ErrorCode.FORBIDDEN, "\u65e0\u6743\u8bbf\u95ee\u8be5\u4f5c\u7b54");
         }
         if (attempt.getStatus() == null || attempt.getStatus() != AttemptStatusEnum.IN_PROGRESS.getCode()) {
-            throw BizException.of(ErrorCode.FORBIDDEN, "attempt is not in progress");
+            throw BizException.of(ErrorCode.FORBIDDEN, "\u5f53\u524d\u4f5c\u7b54\u4e0d\u5904\u4e8e\u8fdb\u884c\u4e2d\u72b6\u6001");
         }
         answerMapper.submitOne(answerId, normalizeAnswerContent(request.getAnswerContent()), LocalDateTime.now());
     }
@@ -334,16 +346,16 @@ public class AttemptServiceImpl implements AttemptService {
     @Override
     public void submitAttempt(Long attemptId, Long userId) {
         QbAttempt attempt = attemptMapper.selectById(attemptId);
-        if (attempt == null) throw BizException.of(ErrorCode.NOT_FOUND, "作答不存在");
-        if (!Objects.equals(attempt.getUserId(), userId)) throw BizException.of(ErrorCode.FORBIDDEN, "无权提交该作答");
+        if (attempt == null) throw BizException.of(ErrorCode.NOT_FOUND, "\u4f5c\u7b54\u4e0d\u5b58\u5728");
+        if (!Objects.equals(attempt.getUserId(), userId)) throw BizException.of(ErrorCode.FORBIDDEN, "\u65e0\u6743\u63d0\u4ea4\u8be5\u4f5c\u7b54");
         if (attempt.getStatus() == null || attempt.getStatus() != AttemptStatusEnum.IN_PROGRESS.getCode()) {
-            throw BizException.of(ErrorCode.FORBIDDEN, "当前状态不允许提交");
+            throw BizException.of(ErrorCode.FORBIDDEN, "\u5f53\u524d\u72b6\u6001\u4e0d\u5141\u8bb8\u63d0\u4ea4");
         }
 
         if (Thread.currentThread() != null) {
             SubmissionContext context = transactionTemplate.execute(status -> prepareAttemptSubmission(attemptId, userId));
             if (context == null) {
-                throw BizException.of(ErrorCode.BIZ_ERROR, "failed to submit attempt");
+                throw BizException.of(ErrorCode.BIZ_ERROR, "\u63d0\u4ea4\u4f5c\u7b54\u5931\u8d25");
             }
 
             try {
@@ -392,7 +404,7 @@ public class AttemptServiceImpl implements AttemptService {
                 gr.setAnswerId(ans.getId());
                 gr.setGradingMode(GradingModeEnum.AUTO.getCode());
                 gr.setScore(s);
-                gr.setDetailJson("{\"correct\":\"" + safeJson(correct) + "\",\"answer\":\"" + safeJson(ans.getAnswerContent()) + "\"}");
+                gr.setDetailJson(buildAutoGradingDetailJson(correct, ans.getAnswerContent()));
                 gr.setLlmCallId(null);
                 gr.setConfidence(1.0);
                 gr.setNeedsReview(0);
@@ -422,7 +434,7 @@ public class AttemptServiceImpl implements AttemptService {
                     gr.setAnswerId(ans.getId());
                     gr.setGradingMode(GradingModeEnum.LLM.getCode());
                     gr.setScore(score);
-                    gr.setDetailJson(llm.rawDetailJson);
+                    gr.setDetailJson(buildLlmDetailJson(score, llm.confidence, llm.needsReview, llm.comment));
                     gr.setLlmCallId(llm.llmCallId);
                     gr.setConfidence(llm.confidence);
                     gr.setNeedsReview(llm.needsReview ? 1 : 0);
@@ -436,7 +448,7 @@ public class AttemptServiceImpl implements AttemptService {
                         wrongQuestionMapper.upsertWrong(userId, aq.getQuestionId(), now);
                     }
                 } else {
-                    // 没有LLM或解析失败：进入人工复核
+                    // Fall back to manual review when the LLM result is unavailable.
                     needsReview = 1;
                     answerMapper.updateScoring(ans.getId(), 0, 0, 0, now);
                     updateStats(userId, aq, 0, now);
@@ -446,7 +458,7 @@ public class AttemptServiceImpl implements AttemptService {
                     gr.setAnswerId(ans.getId());
                     gr.setGradingMode(GradingModeEnum.MANUAL.getCode());
                     gr.setScore(0);
-                    gr.setDetailJson("{\"msg\":\"need manual review\"}");
+                    gr.setDetailJson("{\"\u8bf4\u660e\":\"\u9700\u8981\u4eba\u5de5\u590d\u6838\"}");
                     gr.setNeedsReview(1);
                     gr.setIsFinal(0);
                     gradingRecordMapper.insert(gr);
@@ -479,8 +491,8 @@ public class AttemptServiceImpl implements AttemptService {
     @Override
     public AttemptResultVO result(Long attemptId, Long userId) {
         QbAttempt attempt = attemptMapper.selectById(attemptId);
-        if (attempt == null) throw BizException.of(ErrorCode.NOT_FOUND, "作答不存在");
-        if (!Objects.equals(attempt.getUserId(), userId)) throw BizException.of(ErrorCode.FORBIDDEN, "无权访问");
+        if (attempt == null) throw BizException.of(ErrorCode.NOT_FOUND, "\u4f5c\u7b54\u4e0d\u5b58\u5728");
+        if (!Objects.equals(attempt.getUserId(), userId)) throw BizException.of(ErrorCode.FORBIDDEN, "\u65e0\u6743\u8bbf\u95ee");
 
         AttemptResultVO vo = new AttemptResultVO();
         vo.setAttemptId(attempt.getId());
@@ -494,27 +506,38 @@ public class AttemptServiceImpl implements AttemptService {
         vo.setDurationSec(attempt.getDurationSec());
 
         List<QbAnswer> answers = answerMapper.selectByAttemptId(attemptId);
+        List<QbAttemptQuestion> attemptQuestions = attemptQuestionMapper.selectByAttemptId(attemptId);
+        Map<Long, QbAttemptQuestion> questionByAttemptQuestionId = new HashMap<>();
+        for (QbAttemptQuestion attemptQuestion : attemptQuestions) {
+            questionByAttemptQuestionId.put(attemptQuestion.getId(), attemptQuestion);
+        }
         List<AttemptResultVO.AnswerResultVO> list = new ArrayList<>();
         for (QbAnswer a : answers) {
+            QbAttemptQuestion attemptQuestion = questionByAttemptQuestionId.get(a.getAttemptQuestionId());
             AttemptResultVO.AnswerResultVO ar = new AttemptResultVO.AnswerResultVO();
             ar.setAnswerId(a.getId());
+            ar.setAttemptQuestionId(a.getAttemptQuestionId());
+            ar.setOrderNo(attemptQuestion == null ? null : attemptQuestion.getOrderNo());
             ar.setQuestionId(a.getQuestionId());
+            ar.setMaxScore(attemptQuestion == null ? null : attemptQuestion.getScore());
             ar.setFinalScore(a.getFinalScore());
             ar.setAutoScore(a.getAutoScore());
             ar.setIsCorrect(a.getIsCorrect());
             ar.setAnswerContent(a.getAnswerContent());
+            ar.setSnapshotJson(attemptQuestion == null ? null : repairSnapshotMojibake(attemptQuestion.getSnapshotJson()));
             list.add(ar);
         }
+        list.sort(Comparator.comparing(AttemptResultVO.AnswerResultVO::getOrderNo, Comparator.nullsLast(Integer::compareTo)));
         vo.setAnswers(list);
         return vo;
     }
 
     private SubmissionContext prepareAttemptSubmission(Long attemptId, Long userId) {
         QbAttempt attempt = attemptMapper.selectById(attemptId);
-        if (attempt == null) throw BizException.of(ErrorCode.NOT_FOUND, "attempt not found");
-        if (!Objects.equals(attempt.getUserId(), userId)) throw BizException.of(ErrorCode.FORBIDDEN, "no permission to submit this attempt");
+        if (attempt == null) throw BizException.of(ErrorCode.NOT_FOUND, "\u4f5c\u7b54\u4e0d\u5b58\u5728");
+        if (!Objects.equals(attempt.getUserId(), userId)) throw BizException.of(ErrorCode.FORBIDDEN, "\u65e0\u6743\u63d0\u4ea4\u8be5\u4f5c\u7b54");
         if (attempt.getStatus() == null || attempt.getStatus() != AttemptStatusEnum.IN_PROGRESS.getCode()) {
-            throw BizException.of(ErrorCode.FORBIDDEN, "attempt is not in progress");
+            throw BizException.of(ErrorCode.FORBIDDEN, "\u5f53\u524d\u4f5c\u7b54\u4e0d\u5904\u4e8e\u8fdb\u884c\u4e2d\u72b6\u6001");
         }
 
         LocalDateTime submittedAt = LocalDateTime.now();
@@ -535,6 +558,10 @@ public class AttemptServiceImpl implements AttemptService {
         upd.setSubjectiveScore(0);
         upd.setNeedsReview(0);
         attemptMapper.updateAfterSubmit(upd);
+        QbAttempt submitted = attemptMapper.selectById(attemptId);
+        if (submitted != null) {
+            recordAudit(userId, "ATTEMPT_SUBMIT", "ATTEMPT", attemptId, null, attemptAuditSnapshot(submitted));
+        }
         return new SubmissionContext(attemptId, userId);
     }
 
@@ -598,7 +625,7 @@ public class AttemptServiceImpl implements AttemptService {
                 gr.setAnswerId(ans.getId());
                 gr.setGradingMode(GradingModeEnum.AUTO.getCode());
                 gr.setScore(score);
-                gr.setDetailJson("{\"correct\":\"" + safeJson(correct) + "\",\"answer\":\"" + safeJson(ans.getAnswerContent()) + "\"}");
+                gr.setDetailJson(buildAutoGradingDetailJson(correct, ans.getAnswerContent()));
                 gr.setLlmCallId(null);
                 gr.setConfidence(1.0);
                 gr.setNeedsReview(0);
@@ -625,7 +652,7 @@ public class AttemptServiceImpl implements AttemptService {
                 gr.setAnswerId(ans.getId());
                 gr.setGradingMode(GradingModeEnum.AUTO.getCode());
                 gr.setScore(0);
-                gr.setDetailJson("{\"reason\":\"empty answer\",\"comment\":\"student answer is blank, scored as 0 without llm\"}");
+                gr.setDetailJson("{\"\u539f\u56e0\":\"\u7b54\u6848\u4e3a\u7a7a\",\"\u8bf4\u660e\":\"\u5b66\u751f\u7b54\u6848\u4e3a\u7a7a\uff0c\u6309 0 \u5206\u5904\u7406\uff0c\u672a\u8c03\u7528\u5927\u6a21\u578b\"}");
                 gr.setConfidence(1.0);
                 gr.setNeedsReview(0);
                 gr.setIsFinal(1);
@@ -646,7 +673,7 @@ public class AttemptServiceImpl implements AttemptService {
                 gr.setAnswerId(ans.getId());
                 gr.setGradingMode(GradingModeEnum.LLM.getCode());
                 gr.setScore(score);
-                gr.setDetailJson(llm.rawDetailJson);
+                gr.setDetailJson(buildLlmDetailJson(score, llm.confidence, llm.needsReview, llm.comment));
                 gr.setLlmCallId(llm.llmCallId);
                 gr.setConfidence(llm.confidence);
                 gr.setNeedsReview(llm.needsReview ? 1 : 0);
@@ -669,7 +696,7 @@ public class AttemptServiceImpl implements AttemptService {
                 gr.setAnswerId(ans.getId());
                 gr.setGradingMode(GradingModeEnum.MANUAL.getCode());
                 gr.setScore(0);
-                gr.setDetailJson("{\"msg\":\"need manual review\"}");
+                gr.setDetailJson("{\"\u8bf4\u660e\":\"\u9700\u8981\u4eba\u5de5\u590d\u6838\"}");
                 gr.setNeedsReview(1);
                 gr.setIsFinal(0);
                 gradingRecordMapper.insert(gr);
@@ -697,7 +724,7 @@ public class AttemptServiceImpl implements AttemptService {
         if (attemptType != null) {
             if (attemptType != AttemptTypeEnum.ASSIGNMENT.getCode()
                     && attemptType != AttemptTypeEnum.PRACTICE.getCode()) {
-                throw BizException.of(ErrorCode.PARAM_ERROR, "attemptType must be 1 or 2");
+                throw BizException.of(ErrorCode.PARAM_ERROR, "\u4f5c\u7b54\u7c7b\u578b\u53ea\u80fd\u662f 1 \u6216 2");
             }
             safeAttemptType = attemptType;
         }
@@ -735,7 +762,7 @@ public class AttemptServiceImpl implements AttemptService {
         try {
             QbQuestion q = questionMapper.selectById(questionId);
             if (q == null) {
-                throw BizException.of(ErrorCode.NOT_FOUND, "question not found: " + questionId);
+                throw BizException.of(ErrorCode.NOT_FOUND, "\u9898\u76ee\u4e0d\u5b58\u5728: " + questionId);
             }
 
             List<QbQuestionOption> options = optionMapper.selectByQuestionId(questionId);
@@ -760,19 +787,19 @@ public class AttemptServiceImpl implements AttemptService {
         } catch (BizException e) {
             throw e;
         } catch (Exception e) {
-            throw BizException.of(ErrorCode.BIZ_ERROR, "failed to build question snapshot: " + e.getMessage());
+            throw BizException.of(ErrorCode.BIZ_ERROR, "\u751f\u6210\u9898\u76ee\u5feb\u7167\u5931\u8d25: " + e.getMessage());
         }
     }
 
     private String normalizePracticeMode(String mode) {
         if (mode == null || mode.isBlank()) {
-            throw BizException.of(ErrorCode.PARAM_ERROR, "mode cannot be blank");
+            throw BizException.of(ErrorCode.PARAM_ERROR, "\u7ec3\u4e60\u6a21\u5f0f\u4e0d\u80fd\u4e3a\u7a7a");
         }
         String normalized = mode.trim().toLowerCase();
         if ("random".equals(normalized) || "adaptive".equals(normalized)) {
             return normalized;
         }
-        throw BizException.of(ErrorCode.PARAM_ERROR, "mode must be random or adaptive");
+        throw BizException.of(ErrorCode.PARAM_ERROR, "\u7ec3\u4e60\u6a21\u5f0f\u53c2\u6570\u4e0d\u5408\u6cd5");
     }
 
     private int normalizePracticeTotalScore(Integer totalScore) {
@@ -780,7 +807,7 @@ public class AttemptServiceImpl implements AttemptService {
             return 100;
         }
         if (totalScore <= 0) {
-            throw BizException.of(ErrorCode.PARAM_ERROR, "totalScore must be greater than 0");
+            throw BizException.of(ErrorCode.PARAM_ERROR, "\u603b\u5206\u5fc5\u987b\u5927\u4e8e 0");
         }
         return Math.min(totalScore, 1000);
     }
@@ -808,10 +835,10 @@ public class AttemptServiceImpl implements AttemptService {
 
     private List<QbQuestion> selectPracticeQuestionsByIds(List<Long> questionIds, List<Long> visibleTeacherIds) {
         if (questionIds == null || questionIds.isEmpty()) {
-            throw BizException.of(ErrorCode.PARAM_ERROR, "questionIds cannot be empty");
+            throw BizException.of(ErrorCode.PARAM_ERROR, "\u9898\u76ee\u7f16\u53f7\u5217\u8868\u4e0d\u80fd\u4e3a\u7a7a");
         }
         if (questionIds.size() > 100) {
-            throw BizException.of(ErrorCode.PARAM_ERROR, "questionIds size cannot exceed 100");
+            throw BizException.of(ErrorCode.PARAM_ERROR, "\u9898\u76ee\u7f16\u53f7\u6570\u91cf\u4e0d\u80fd\u8d85\u8fc7 100");
         }
         List<QbQuestion> rows = questionMapper.selectPublishedByIds(questionIds, visibleTeacherIds);
         Map<Long, QbQuestion> byId = new HashMap<>();
@@ -822,7 +849,7 @@ public class AttemptServiceImpl implements AttemptService {
         for (Long qid : questionIds) {
             QbQuestion q = byId.get(qid);
             if (q == null) {
-                throw BizException.of(ErrorCode.PARAM_ERROR, "question is not published or not found: " + qid);
+                throw BizException.of(ErrorCode.PARAM_ERROR, "\u9898\u76ee\u4e0d\u5b58\u5728\u6216\u672a\u53d1\u5e03: " + qid);
             }
             ordered.add(q);
         }
@@ -838,7 +865,7 @@ public class AttemptServiceImpl implements AttemptService {
         long candidateLimit = Math.min(600L, Math.max(questionCount * 8L, 80L));
         List<QbQuestion> candidates = questionMapper.searchForPractice(tagIds, chapters, questionTypes, visibleTeacherIds, candidateLimit);
         if (candidates == null || candidates.isEmpty()) {
-            throw BizException.of(ErrorCode.BIZ_ERROR, "no published questions match current scope");
+            throw BizException.of(ErrorCode.BIZ_ERROR, "\u5f53\u524d\u7b5b\u9009\u8303\u56f4\u5185\u6ca1\u6709\u53ef\u7528\u7684\u5df2\u53d1\u5e03\u9898\u76ee");
         }
 
         List<Long> questionIds = candidates.stream()
@@ -847,7 +874,7 @@ public class AttemptServiceImpl implements AttemptService {
                 .distinct()
                 .toList();
         if (questionIds.isEmpty()) {
-            throw BizException.of(ErrorCode.BIZ_ERROR, "adaptive candidate set is empty");
+            throw BizException.of(ErrorCode.BIZ_ERROR, "\u81ea\u9002\u5e94\u7ec3\u4e60\u5019\u9009\u9898\u96c6\u4e3a\u7a7a");
         }
 
         Map<Long, QbQuestionUserStat> statByQuestionId = new HashMap<>();
@@ -943,7 +970,7 @@ public class AttemptServiceImpl implements AttemptService {
         }
 
         if (ranked.isEmpty()) {
-            throw BizException.of(ErrorCode.BIZ_ERROR, "adaptive candidate set is empty");
+            throw BizException.of(ErrorCode.BIZ_ERROR, "\u81ea\u9002\u5e94\u7ec3\u4e60\u5019\u9009\u9898\u96c6\u4e3a\u7a7a");
         }
 
         ranked.sort(
@@ -984,7 +1011,7 @@ public class AttemptServiceImpl implements AttemptService {
         for (Integer t : normalized) {
             QuestionTypeEnum type = QuestionTypeEnum.of(t);
             if (type == null || !type.isEnabledNow()) {
-                throw BizException.of(ErrorCode.PARAM_ERROR, "questionType is disabled or invalid: " + t);
+                throw BizException.of(ErrorCode.PARAM_ERROR, "\u9898\u578b\u4e0d\u53ef\u7528\u6216\u53c2\u6570\u65e0\u6548: " + t);
             }
         }
         return normalized;
@@ -1160,7 +1187,7 @@ public class AttemptServiceImpl implements AttemptService {
             return normalizeTF(sa).equals(normalizeTF(ua));
         }
         if (questionType == QuestionTypeEnum.BLANK.getCode()) {
-            // 简化：去空白后比较
+            // Compare blank answers after removing whitespace.
             return sa.replaceAll("\\s+", "").equalsIgnoreCase(ua.replaceAll("\\s+", ""));
         }
         return false;
@@ -1187,8 +1214,8 @@ public class AttemptServiceImpl implements AttemptService {
 
     private String normalizeTF(String s) {
         s = s.trim().toLowerCase();
-        if (s.equals("t") || s.equals("true") || s.equals("1") || s.equals("对") || s.equals("正确")) return "true";
-        if (s.equals("f") || s.equals("false") || s.equals("0") || s.equals("错") || s.equals("错误")) return "false";
+        if (s.equals("t") || s.equals("true") || s.equals("1") || s.equals("\u5bf9") || s.equals("\u6b63\u786e")) return "true";
+        if (s.equals("f") || s.equals("false") || s.equals("0") || s.equals("\u9519") || s.equals("\u9519\u8bef")) return "false";
         return s;
     }
 
@@ -1199,7 +1226,7 @@ public class AttemptServiceImpl implements AttemptService {
         if (tagIds != null) {
             for (Long tid : tagIds) {
                 if (tid == null) continue;
-                double init = correctInc; // 第一次：0或1
+                double init = correctInc; // Initialize the first mastery sample with this result.
                 tagMasteryMapper.upsertAttempt(userId, tid, correctInc, init);
             }
         }
@@ -1356,6 +1383,20 @@ public class AttemptServiceImpl implements AttemptService {
         return s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
+    private String buildAutoGradingDetailJson(String correct, String answer) {
+        return "{\"\\u6807\\u51c6\\u7b54\\u6848\":\"" + safeJson(correct)
+                + "\",\"\\u5b66\\u751f\\u7b54\\u6848\":\"" + safeJson(answer) + "\"}";
+    }
+
+    private String buildLlmDetailJson(Integer score, Double confidence, boolean needsReview, String comment) {
+        String safeScore = score == null ? "null" : String.valueOf(score);
+        String safeConfidence = confidence == null ? "null" : String.valueOf(confidence);
+        return "{\"\\u5206\\u6570\":" + safeScore
+                + ",\"\\u7f6e\\u4fe1\\u5ea6\":" + safeConfidence
+                + ",\"\\u9700\\u8981\\u590d\\u6838\":" + needsReview
+                + ",\"\\u8bc4\\u8bed\":\"" + safeJson(comment) + "\"}";
+    }
+
     private String normalizeAnswerContent(String answerContent) {
         return answerContent == null ? "" : answerContent;
     }
@@ -1365,7 +1406,6 @@ public class AttemptServiceImpl implements AttemptService {
     }
 
     private LlmGradeResult tryLlmGrade(QbAnswer ans, QbAttemptQuestion aq, int maxScore) {
-        // 如果没有配置apiKey，LlmServiceImpl会返回 callStatus=2，此处视为失败。
         try {
             String questionTitle = null;
             String stem = null;
@@ -1377,29 +1417,33 @@ public class AttemptServiceImpl implements AttemptService {
                 stem = root.path("stem").asText(null);
                 standardAnswer = root.path("standardAnswer").asText(null);
                 analysisText = root.path("analysisText").asText(null);
-            } catch (Exception ignore) {}
+            } catch (Exception ignore) {
+            }
 
-            String prompt = "你是阅卷老师。请根据题目、参考答案/解析，对学生答案评分，满分" + maxScore + "分。\n" +
-                    "要求只输出JSON：{\"score\":number,\"confidence\":number,\"needsReview\":boolean,\"comment\":string}\n" +
-                    "confidence范围0~1；needsReview在不确定、答案含糊、可能需要人工复核时为true。\n\n" +
-                    "题目标题：" + (questionTitle == null ? "" : questionTitle) + "\n" +
-                    "题干：" + (stem == null ? "" : stem) + "\n" +
-                    "参考答案：" + (standardAnswer == null ? "" : standardAnswer) + "\n" +
-                    "解析：" + (analysisText == null ? "" : analysisText) + "\n" +
-                    "学生答案：" + (ans.getAnswerContent() == null ? "" : ans.getAnswerContent()) + "\n";
+            String prompt = LlmPromptBuilder.buildSubjectiveGradingPrompt(
+                    questionTitle,
+                    stem,
+                    standardAnswer,
+                    analysisText,
+                    ans.getAnswerContent(),
+                    maxScore,
+                    null,
+                    null
+            );
 
             QbLlmCall call = llmService.chatCompletion(2, ans.getId(), prompt);
             if (call.getCallStatus() == null || call.getCallStatus() != 1) {
                 return null;
             }
             String content = llmService.extractContent(call.getResponseText());
-            if (content == null) return null;
+            if (content == null) {
+                return null;
+            }
 
             JsonNode json;
             try {
                 json = objectMapper.readTree(content);
             } catch (Exception e) {
-                // 有些模型会在代码块中返回
                 content = content.trim();
                 content = content.replaceAll("^```json", "").replaceAll("```$", "").trim();
                 try {
@@ -1412,12 +1456,11 @@ public class AttemptServiceImpl implements AttemptService {
             LlmGradeResult r = new LlmGradeResult();
             r.success = true;
             r.llmCallId = call.getId();
-            if (json.has("score")) r.score = json.get("score").asInt();
-            if (json.has("confidence")) r.confidence = json.get("confidence").asDouble();
-            if (json.has("needsReview")) r.needsReview = json.get("needsReview").asBoolean();
-            if (json.has("comment")) r.comment = json.get("comment").asText();
+            r.score = readIntField(json, "\u5206\u6570", "score");
+            r.confidence = readDoubleField(json, "\u7f6e\u4fe1\u5ea6", "confidence");
+            r.needsReview = readBooleanField(json, "\u9700\u8981\u590d\u6838", "needsReview") != Boolean.FALSE;
+            r.comment = readTextField(json, "\u8bc4\u8bed", "comment");
             r.rawDetailJson = content;
-            // 低置信度也要求复核
             if (r.confidence != null && r.confidence < 0.55) {
                 r.needsReview = true;
             }
@@ -1425,6 +1468,72 @@ public class AttemptServiceImpl implements AttemptService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private Integer readIntField(JsonNode json, String... fieldNames) {
+        JsonNode node = findField(json, fieldNames);
+        return node == null ? null : node.asInt();
+    }
+
+    private Double readDoubleField(JsonNode json, String... fieldNames) {
+        JsonNode node = findField(json, fieldNames);
+        return node == null ? null : node.asDouble();
+    }
+
+    private Boolean readBooleanField(JsonNode json, String... fieldNames) {
+        JsonNode node = findField(json, fieldNames);
+        return node == null ? null : node.asBoolean();
+    }
+
+    private String readTextField(JsonNode json, String... fieldNames) {
+        JsonNode node = findField(json, fieldNames);
+        return node == null ? null : node.asText();
+    }
+
+    private JsonNode findField(JsonNode json, String... fieldNames) {
+        if (json == null || fieldNames == null) {
+            return null;
+        }
+        for (String fieldName : fieldNames) {
+            if (fieldName == null || fieldName.isBlank() || !json.has(fieldName)) {
+                continue;
+            }
+            JsonNode node = json.get(fieldName);
+            if (node != null && !node.isNull()) {
+                return node;
+            }
+        }
+        return null;
+    }
+
+    private Map<String, Object> attemptAuditSnapshot(QbAttempt attempt) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("id", attempt.getId());
+        snapshot.put("assignmentId", attempt.getAssignmentId());
+        snapshot.put("paperId", attempt.getPaperId());
+        snapshot.put("userId", attempt.getUserId());
+        snapshot.put("attemptType", attempt.getAttemptType());
+        snapshot.put("attemptNo", attempt.getAttemptNo());
+        snapshot.put("status", attempt.getStatus());
+        snapshot.put("startedAt", attempt.getStartedAt());
+        snapshot.put("submittedAt", attempt.getSubmittedAt());
+        snapshot.put("totalScore", attempt.getTotalScore());
+        snapshot.put("objectiveScore", attempt.getObjectiveScore());
+        snapshot.put("subjectiveScore", attempt.getSubjectiveScore());
+        snapshot.put("needsReview", attempt.getNeedsReview());
+        return snapshot;
+    }
+
+    private void recordAudit(Long userId,
+                             String action,
+                             String entityType,
+                             Long entityId,
+                             Object beforeData,
+                             Object afterData) {
+        if (auditLogService == null) {
+            return;
+        }
+        auditLogService.record(userId, action, entityType, entityId, beforeData, afterData);
     }
 
     private static class LlmGradeResult {
@@ -1443,3 +1552,4 @@ public class AttemptServiceImpl implements AttemptService {
     private record AdaptiveCandidateScore(QbQuestion question, double adaptiveScore) {
     }
 }
+

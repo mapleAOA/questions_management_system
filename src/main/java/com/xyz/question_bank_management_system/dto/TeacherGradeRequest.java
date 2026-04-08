@@ -7,8 +7,8 @@ import lombok.Data;
 @Data
 public class TeacherGradeRequest {
 
-    @NotNull(message = "score cannot be null")
-    @Min(value = 0, message = "score must be >= 0")
+    @NotNull(message = "分数不能为空")
+    @Min(value = 0, message = "分数不能小于 0")
     private Integer score;
 
     private String comment;

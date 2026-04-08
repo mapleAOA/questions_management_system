@@ -27,6 +27,4 @@ public interface PaperService {
     void updatePaperQuestion(Long paperQuestionId, PaperQuestionUpdateRequest request, Long actorId, boolean isAdmin);
 
     void removePaperQuestion(Long paperQuestionId, Long actorId, boolean isAdmin);
-
-    void recalculateTotalScore(Long paperId, Long actorId, boolean isAdmin);
 }

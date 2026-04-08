@@ -8,10 +8,11 @@ import lombok.Data;
 public class PaperUpsertRequest {
     @NotBlank(message = "试卷标题不能为空")
     private String paperTitle;
+
     private String paperDesc;
-    /** paper type */
-    @NotNull(message = "paperType不能为空")
+
+    /** paper type: 1=assignment, 2=paper */
+    @NotNull(message = "试卷类型不能为空")
     private Integer paperType;
-    /** 1=draft,2=published,3=archived */
-    private Integer status = 1;
 }
+

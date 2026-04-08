@@ -11,7 +11,7 @@ public class TagUpdateRequest {
     private String tagCode;
     private Long parentId;
     private Integer tagLevel;
-    @NotNull(message = "tagType不能为空")
+    @NotNull(message = "标签类型不能为空")
     private Integer tagType;
     private Integer sortOrder;
 }

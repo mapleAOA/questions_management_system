@@ -8,13 +8,13 @@ import java.time.LocalDateTime;
 
 @Data
 public class AssignmentUpsertRequest {
-    @NotNull(message = "paperId不能为空")
+    @NotNull(message = "试卷编号不能为空")
     private Long paperId;
     @NotBlank(message = "作业标题不能为空")
     private String assignmentTitle;
     private String assignmentDesc;
     private LocalDateTime startTime;
-    @NotNull(message = "endTime不能为空")
+    @NotNull(message = "结束时间不能为空")
     private LocalDateTime endTime;
     private Integer timeLimitMin = 0;
     private Integer maxAttempts = 1;

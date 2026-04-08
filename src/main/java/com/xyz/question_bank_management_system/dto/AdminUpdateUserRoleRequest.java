@@ -5,6 +5,6 @@ import lombok.Data;
 
 @Data
 public class AdminUpdateUserRoleRequest {
-    @NotBlank(message = "role不能为空")
+    @NotBlank(message = "角色不能为空")
     private String role;
 }

@@ -19,6 +19,11 @@ public class QuestionDetailVO {
     private Integer analysisSource;
     private Long analysisLlmCallId;
     private Integer status;
+    private Integer bankReviewStatus;
+    private Long bankReviewerId;
+    private LocalDateTime bankReviewedAt;
+    private String bankReviewComment;
+    private Boolean submitToBankReview;
     private Long createdBy;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -27,6 +32,7 @@ public class QuestionDetailVO {
     private List<Long> tagIds;
     private List<String> tagNames;
     private List<QuestionCaseVO> cases;
+    private List<QuestionLlmAnalysisVO> llmAnalyses;
 
     @Data
     public static class QuestionOptionVO {

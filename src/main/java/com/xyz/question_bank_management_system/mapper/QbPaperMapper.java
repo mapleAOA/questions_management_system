@@ -13,12 +13,12 @@ import java.util.List;
 @Mapper
 public interface QbPaperMapper {
 
-    @Insert("INSERT INTO qb_paper(paper_title, paper_desc, paper_type, total_score, status, creator_id, created_at, updated_at, is_deleted) " +
-            "VALUES(#{paperTitle}, #{paperDesc}, #{paperType}, #{totalScore}, #{status}, #{creatorId}, NOW(3), NOW(3), 0)")
+    @Insert("INSERT INTO qb_paper(paper_title, paper_desc, paper_type, total_score, creator_id, created_at, updated_at, is_deleted) " +
+            "VALUES(#{paperTitle}, #{paperDesc}, #{paperType}, #{totalScore}, #{creatorId}, NOW(3), NOW(3), 0)")
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insert(QbPaper paper);
 
-    @Update("UPDATE qb_paper SET paper_title=#{paperTitle}, paper_desc=#{paperDesc}, paper_type=#{paperType}, total_score=#{totalScore}, status=#{status}, updated_at=NOW(3) WHERE id=#{id} AND is_deleted=0")
+    @Update("UPDATE qb_paper SET paper_title=#{paperTitle}, paper_desc=#{paperDesc}, paper_type=#{paperType}, total_score=#{totalScore}, updated_at=NOW(3) WHERE id=#{id} AND is_deleted=0")
     int update(QbPaper paper);
 
     @Select("SELECT * FROM qb_paper WHERE id=#{id} AND is_deleted=0")

@@ -42,30 +42,30 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<ApiResponse<Object>> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
-        String msg = "invalid parameter: " + e.getName();
+        String msg = "参数格式不正确: " + e.getName();
         return ResponseEntity.badRequest().body(ApiResponse.fail(ErrorCode.PARAM_ERROR, msg));
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiResponse<Object>> handleNotReadable(HttpMessageNotReadableException e) {
-        return ResponseEntity.badRequest().body(ApiResponse.fail(ErrorCode.PARAM_ERROR, "invalid request body"));
+        return ResponseEntity.badRequest().body(ApiResponse.fail(ErrorCode.PARAM_ERROR, "请求体格式不正确"));
     }
 
     @ExceptionHandler(AuthenticationException.class)
     public ResponseEntity<ApiResponse<Object>> handleAuthentication(AuthenticationException e) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .body(ApiResponse.fail(ErrorCode.UNAUTHORIZED, "unauthorized"));
+                .body(ApiResponse.fail(ErrorCode.UNAUTHORIZED, "未登录或登录已失效"));
     }
 
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ApiResponse<Object>> handleAccessDenied(AccessDeniedException e) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .body(ApiResponse.fail(ErrorCode.FORBIDDEN, "forbidden"));
+                .body(ApiResponse.fail(ErrorCode.FORBIDDEN, "无权执行该操作"));
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Object>> handleOther(Exception e, HttpServletRequest request) {
-        log.error("Unhandled exception, uri={}", request.getRequestURI(), e);
+        log.error("未处理异常，uri={}", request.getRequestURI(), e);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ApiResponse.fail(ErrorCode.SYSTEM_ERROR, "系统异常"));
     }

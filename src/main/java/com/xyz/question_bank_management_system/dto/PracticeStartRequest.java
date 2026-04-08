@@ -9,7 +9,7 @@ import java.util.List;
 @Data
 public class PracticeStartRequest {
 
-    @NotBlank(message = "mode cannot be blank")
+    @NotBlank(message = "练习模式不能为空")
     private String mode;
 
     @Valid

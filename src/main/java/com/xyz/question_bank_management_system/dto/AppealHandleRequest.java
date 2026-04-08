@@ -7,10 +7,10 @@ import lombok.Data;
 @Data
 public class AppealHandleRequest {
 
-    @NotBlank(message = "action cannot be blank")
+    @NotBlank(message = "处理动作不能为空")
     private String action;
 
-    @PositiveOrZero(message = "finalScore must be >= 0")
+    @PositiveOrZero(message = "最终分数不能小于 0")
     private Integer finalScore;
 
     private String decisionComment;

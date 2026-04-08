@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.xyz.question_bank_management_system.config.QwenProperties;
+import com.xyz.question_bank_management_system.config.LlmProperties;
 import com.xyz.question_bank_management_system.entity.QbLlmCall;
 import com.xyz.question_bank_management_system.mapper.QbLlmCallMapper;
 import com.xyz.question_bank_management_system.service.LlmService;
@@ -25,9 +25,9 @@ import java.time.Duration;
 public class LlmServiceImpl implements LlmService {
 
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
-    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(60);
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(120);
 
-    private final QwenProperties qwenProperties;
+    private final LlmProperties llmProperties;
     private final QbLlmCallMapper llmCallMapper;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -37,117 +37,103 @@ public class LlmServiceImpl implements LlmService {
 
     @Override
     public QbLlmCall chatCompletion(int bizType, long bizId, String prompt) {
+        return chatCompletion(bizType, bizId, prompt, null);
+    }
+
+    @Override
+    public QbLlmCall chatCompletion(int bizType, long bizId, String prompt, String providerKey) {
+        LlmProperties.ModelProvider provider = resolveProvider(providerKey);
+
         QbLlmCall call = new QbLlmCall();
         call.setBizType(bizType);
         call.setBizId(bizId);
-        call.setModelName(qwenProperties.getModel());
+        call.setModelName(provider == null ? providerKey : provider.getModel());
         call.setPromptText(prompt);
         call.setCallStatus(0);
         llmCallMapper.insert(call);
 
-        String apiKey = qwenProperties.resolveApiKey();
+        if (provider == null) {
+            return failCall(call, "未找到可用的大模型配置", "{\"error\":\"provider_missing\"}", 0);
+        }
+
+        String apiKey = provider.resolveApiKey();
+        if (provider.getBaseUrl() == null || provider.getBaseUrl().isBlank()) {
+            return failCall(call, "大模型服务地址未配置", "{\"error\":\"base_url_missing\"}", 0);
+        }
+        if (provider.getModel() == null || provider.getModel().isBlank()) {
+            return failCall(call, "大模型名称未配置", "{\"error\":\"model_missing\"}", 0);
+        }
         if (apiKey == null || apiKey.isBlank()) {
-            call.setResponseText("Qwen api-key not configured");
-            call.setResponseJson("{\"error\":\"apiKey missing\"}");
-            call.setCallStatus(2);
-            call.setLatencyMs(0);
-            call.setTokensPrompt(0);
-            call.setTokensCompletion(0);
-            call.setCostAmount(BigDecimal.ZERO);
-            llmCallMapper.updateResponse(call);
-            return call;
+            return failCall(call, "大模型密钥未配置", "{\"error\":\"api_key_missing\"}", 0);
         }
 
         long start = System.currentTimeMillis();
         try {
-            String baseUrl = qwenProperties.getBaseUrl();
-            if (baseUrl.endsWith("/")) {
-                baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
-            }
+            String endpoint = normalizeBaseUrl(provider.getBaseUrl()) + "/chat/completions";
 
-            ObjectNode req = objectMapper.createObjectNode();
-            req.put("model", qwenProperties.getModel());
-            if (qwenProperties.getTemperature() != null) {
-                req.put("temperature", qwenProperties.getTemperature());
+            ObjectNode requestBody = objectMapper.createObjectNode();
+            requestBody.put("model", provider.getModel());
+            if (provider.isSupportsTemperature() && provider.getTemperature() != null) {
+                requestBody.put("temperature", provider.getTemperature());
             }
 
             ArrayNode messages = objectMapper.createArrayNode();
-            ObjectNode sys = objectMapper.createObjectNode();
-            sys.put("role", "system");
-            sys.put("content", "你是题库管理系统的智能助教。请严格按用户指令输出。若需要结构化输出请用JSON。\n");
-            messages.add(sys);
 
-            ObjectNode user = objectMapper.createObjectNode();
-            user.put("role", "user");
-            user.put("content", prompt);
-            messages.add(user);
+            ObjectNode systemMessage = objectMapper.createObjectNode();
+            systemMessage.put("role", "system");
+            systemMessage.put("content", llmProperties.getSystemPrompt());
+            messages.add(systemMessage);
 
-            req.set("messages", messages);
+            ObjectNode userMessage = objectMapper.createObjectNode();
+            userMessage.put("role", "user");
+            userMessage.put("content", prompt);
+            messages.add(userMessage);
 
-            String body = objectMapper.writeValueAsString(req);
+            requestBody.set("messages", messages);
 
-            HttpRequest httpReq = HttpRequest.newBuilder()
-                    .uri(URI.create(baseUrl + "/chat/completions"))
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(endpoint))
                     .timeout(REQUEST_TIMEOUT)
                     .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + apiKey)
-                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .header("Authorization", normalizeAuthorization(apiKey))
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(requestBody)))
                     .build();
 
-            HttpResponse<String> resp = httpClient.send(httpReq, HttpResponse.BodyHandlers.ofString());
-            long latency = System.currentTimeMillis() - start;
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            int latencyMs = (int) (System.currentTimeMillis() - start);
 
-            call.setLatencyMs((int) latency);
-            call.setResponseText(resp.body());
+            call.setLatencyMs(latencyMs);
+            call.setTokensPrompt(0);
+            call.setTokensCompletion(0);
+            call.setCostAmount(BigDecimal.ZERO);
 
-            if (resp.statusCode() >= 200 && resp.statusCode() < 300) {
-                String content = extractContent(resp.body());
-                ObjectNode compact = objectMapper.createObjectNode();
-                compact.put("content", content);
-
-                // usage (optional)
-                try {
-                    JsonNode root = objectMapper.readTree(resp.body());
-                    JsonNode usage = root.get("usage");
-                    if (usage != null) {
-                        compact.set("usage", usage);
-                        if (usage.get("prompt_tokens") != null) {
-                            call.setTokensPrompt(usage.get("prompt_tokens").asInt());
-                        }
-                        if (usage.get("completion_tokens") != null) {
-                            call.setTokensCompletion(usage.get("completion_tokens").asInt());
-                        }
-                    }
-                } catch (Exception ignore) {
-                }
-
-                call.setResponseJson(objectMapper.writeValueAsString(compact));
+            if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                call.setResponseText(response.body());
+                call.setResponseJson(response.body());
+                fillUsage(call, response.body());
                 call.setCallStatus(1);
-                if (call.getTokensPrompt() == null) call.setTokensPrompt(0);
-                if (call.getTokensCompletion() == null) call.setTokensCompletion(0);
-                call.setCostAmount(BigDecimal.ZERO);
             } else {
+                call.setResponseText("模型调用失败，HTTP 状态码：" + response.statusCode());
+                call.setResponseJson(response.body());
                 call.setCallStatus(2);
-                call.setResponseJson("{\"httpStatus\":" + resp.statusCode() + "}");
-                call.setTokensPrompt(0);
-                call.setTokensCompletion(0);
-                call.setCostAmount(BigDecimal.ZERO);
             }
 
             llmCallMapper.updateResponse(call);
             return call;
-        } catch (Exception e) {
-            long latency = System.currentTimeMillis() - start;
-            log.warn("Qwen call failed", e);
-            call.setLatencyMs((int) latency);
-            call.setResponseText(e.getMessage());
-            call.setResponseJson("{\"error\":\"exception\"}");
-            call.setCallStatus(2);
-            call.setTokensPrompt(0);
-            call.setTokensCompletion(0);
-            call.setCostAmount(BigDecimal.ZERO);
-            llmCallMapper.updateResponse(call);
-            return call;
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            int latencyMs = (int) (System.currentTimeMillis() - start);
+            log.warn("大模型调用被中断，provider={}", provider.getKey(), ex);
+            return failCall(call, "模型调用被中断，请稍后重试", "{\"error\":\"interrupted\"}", latencyMs);
+        } catch (Exception ex) {
+            int latencyMs = (int) (System.currentTimeMillis() - start);
+            log.warn("大模型调用失败，provider={}", provider.getKey(), ex);
+            return failCall(
+                    call,
+                    "模型调用失败，请检查网络、密钥或模型配置",
+                    "{\"error\":\"exception\",\"message\":\"" + safeJson(ex.getMessage()) + "\"}",
+                    latencyMs
+            );
         }
     }
 
@@ -155,16 +141,96 @@ public class LlmServiceImpl implements LlmService {
     public String extractContent(String responseText) {
         try {
             JsonNode root = objectMapper.readTree(responseText);
-            JsonNode choices = root.get("choices");
-            if (choices != null && choices.isArray() && choices.size() > 0) {
-                JsonNode msg = choices.get(0).get("message");
-                if (msg != null && msg.get("content") != null) {
-                    return msg.get("content").asText();
-                }
+            JsonNode choices = root.path("choices");
+            if (!choices.isArray() || choices.isEmpty()) {
+                return null;
             }
-            return null;
+            JsonNode contentNode = choices.get(0).path("message").path("content");
+            return extractMessageContent(contentNode);
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private LlmProperties.ModelProvider resolveProvider(String providerKey) {
+        if (providerKey == null || providerKey.isBlank()) {
+            return llmProperties.defaultProvider();
+        }
+        return llmProperties.getProvider(providerKey);
+    }
+
+    private String normalizeBaseUrl(String baseUrl) {
+        String normalized = baseUrl == null ? "" : baseUrl.trim();
+        while (normalized.endsWith("/")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        return normalized;
+    }
+
+    private String normalizeAuthorization(String apiKey) {
+        String normalized = apiKey == null ? "" : apiKey.trim();
+        if (normalized.regionMatches(true, 0, "Bearer ", 0, 7)) {
+            return normalized;
+        }
+        return "Bearer " + normalized;
+    }
+
+    private void fillUsage(QbLlmCall call, String responseBody) {
+        try {
+            JsonNode usage = objectMapper.readTree(responseBody).path("usage");
+            if (usage.has("prompt_tokens")) {
+                call.setTokensPrompt(usage.get("prompt_tokens").asInt());
+            }
+            if (usage.has("completion_tokens")) {
+                call.setTokensCompletion(usage.get("completion_tokens").asInt());
+            }
+        } catch (Exception ignore) {
+        }
+    }
+
+    private String extractMessageContent(JsonNode contentNode) {
+        if (contentNode == null || contentNode.isNull()) {
+            return null;
+        }
+        if (contentNode.isTextual()) {
+            return contentNode.asText();
+        }
+        if (contentNode.isArray()) {
+            StringBuilder builder = new StringBuilder();
+            for (JsonNode item : contentNode) {
+                if (item == null || item.isNull()) {
+                    continue;
+                }
+                String text = item.has("text") ? item.path("text").asText("") : item.asText("");
+                if (text.isBlank()) {
+                    continue;
+                }
+                if (builder.length() > 0) {
+                    builder.append('\n');
+                }
+                builder.append(text);
+            }
+            return builder.isEmpty() ? null : builder.toString();
+        }
+        return contentNode.toString();
+    }
+
+    private QbLlmCall failCall(QbLlmCall call, String responseText, String responseJson, int latencyMs) {
+        call.setResponseText(responseText);
+        call.setResponseJson(responseJson);
+        call.setCallStatus(2);
+        call.setLatencyMs(latencyMs);
+        call.setTokensPrompt(0);
+        call.setTokensCompletion(0);
+        call.setCostAmount(BigDecimal.ZERO);
+        llmCallMapper.updateResponse(call);
+        return call;
+    }
+
+    private String safeJson(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 }

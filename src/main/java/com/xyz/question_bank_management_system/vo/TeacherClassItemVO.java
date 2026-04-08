@@ -10,6 +10,8 @@ public class TeacherClassItemVO {
     private String className;
     private String classCode;
     private String classDesc;
+    private Long teacherId;
+    private String teacherName;
     private LocalDateTime createdAt;
     private Long studentCount;
 }

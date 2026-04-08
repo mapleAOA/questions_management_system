@@ -5,10 +5,10 @@ import lombok.Data;
 
 @Data
 public class AdminCreateUserRequest {
-    @NotBlank(message = "username不能为空")
+    @NotBlank(message = "用户名不能为空")
     private String username;
 
-    @NotBlank(message = "password不能为空")
+    @NotBlank(message = "密码不能为空")
     private String password;
 
     private String displayName;
@@ -17,6 +17,6 @@ public class AdminCreateUserRequest {
     /** 1=active,0=disabled */
     private Integer status = 1;
 
-    @NotBlank(message = "role不能为空")
+    @NotBlank(message = "角色不能为空")
     private String role;
 }

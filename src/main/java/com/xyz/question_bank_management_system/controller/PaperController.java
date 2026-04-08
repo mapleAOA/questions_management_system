@@ -93,14 +93,6 @@ public class PaperController {
         return ApiResponse.ok();
     }
 
-    @PostMapping("/{paperId}/recalculate")
-    public ApiResponse<Void> recalculate(@PathVariable Long paperId) {
-        Long uid = SecurityContextUtil.getUserId();
-        boolean isAdmin = hasRole("ROLE_ADMIN");
-        paperService.recalculateTotalScore(paperId, uid, isAdmin);
-        return ApiResponse.ok();
-    }
-
     private boolean hasRole(String role) {
         return SecurityContextHolder.getContext().getAuthentication().getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)

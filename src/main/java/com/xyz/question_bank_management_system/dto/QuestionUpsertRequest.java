@@ -26,6 +26,8 @@ public class QuestionUpsertRequest {
     private Integer analysisSource = 1;
     /** 1=draft,2=published,3=archived */
     private Integer status = 1;
+    /** teacher only: submit published question for shared bank review */
+    private Boolean submitToBankReview = false;
 
     @Valid
     private List<QuestionOptionDTO> options;

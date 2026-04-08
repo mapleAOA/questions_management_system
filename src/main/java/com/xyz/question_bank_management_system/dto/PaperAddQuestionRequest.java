@@ -5,10 +5,10 @@ import lombok.Data;
 
 @Data
 public class PaperAddQuestionRequest {
-    @NotNull(message = "questionId不能为空")
+    @NotNull(message = "题目编号不能为空")
     private Long questionId;
-    @NotNull(message = "orderNo不能为空")
+    @NotNull(message = "题目顺序不能为空")
     private Integer orderNo;
-    @NotNull(message = "score不能为空")
+    @NotNull(message = "题目分值不能为空")
     private Integer score;
 }

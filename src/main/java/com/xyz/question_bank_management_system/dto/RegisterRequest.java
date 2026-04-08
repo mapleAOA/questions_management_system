@@ -7,17 +7,17 @@ import lombok.Data;
 @Data
 public class RegisterRequest {
 
-    @NotBlank(message = "username cannot be empty")
+    @NotBlank(message = "用户名不能为空")
     private String username;
 
-    @NotBlank(message = "password cannot be empty")
+    @NotBlank(message = "密码不能为空")
     @Pattern(
             regexp = "^(?=.*[A-Za-z])(?=.*\\d)(?=.*[^A-Za-z\\d])\\S{8,20}$",
-            message = "password must be 8-20 characters and include letters, numbers, and special characters"
+            message = "密码必须为 8 到 20 位，且同时包含字母、数字和特殊字符"
     )
     private String password;
 
-    @NotBlank(message = "role cannot be empty")
+    @NotBlank(message = "角色不能为空")
     private String role;
 
     private String displayName;

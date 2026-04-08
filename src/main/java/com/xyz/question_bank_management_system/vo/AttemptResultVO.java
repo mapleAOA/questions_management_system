@@ -22,10 +22,14 @@ public class AttemptResultVO {
     @Data
     public static class AnswerResultVO {
         private Long answerId;
+        private Long attemptQuestionId;
+        private Integer orderNo;
         private Long questionId;
+        private Integer maxScore;
         private Integer finalScore;
         private Integer autoScore;
         private Integer isCorrect;
         private String answerContent;
+        private String snapshotJson;
     }
 }

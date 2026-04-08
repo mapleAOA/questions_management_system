@@ -48,14 +48,14 @@ public class AppealServiceImpl implements AppealService {
     public Long submitAppeal(AppealCreateRequest request, Long userId) {
         QbAnswer answer = answerMapper.selectById(request.getAnswerId());
         if (answer == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "answer not found");
+            throw BizException.of(ErrorCode.NOT_FOUND, "答案不存在");
         }
         if (!userId.equals(answer.getUserId())) {
-            throw BizException.of(ErrorCode.FORBIDDEN, "cannot appeal others' answer");
+            throw BizException.of(ErrorCode.FORBIDDEN, "不能申诉他人的答案");
         }
         long pendingCount = appealMapper.countPendingByAnswerAndUser(answer.getId(), userId);
         if (pendingCount > 0) {
-            throw BizException.of(ErrorCode.CONFLICT, "pending appeal already exists");
+            throw BizException.of(ErrorCode.CONFLICT, "已有待处理申诉，请勿重复提交");
         }
 
         QbAppeal appeal = new QbAppeal();
@@ -97,24 +97,24 @@ public class AppealServiceImpl implements AppealService {
     public void handleAppeal(Long appealId, AppealHandleRequest request, Long handlerId) {
         QbAppeal appeal = appealMapper.selectById(appealId);
         if (appeal == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "appeal not found");
+            throw BizException.of(ErrorCode.NOT_FOUND, "申诉记录不存在");
         }
         if (appeal.getAppealStatus() == null || appeal.getAppealStatus() != AppealStatusEnum.PENDING.getCode()) {
-            throw BizException.of(ErrorCode.CONFLICT, "appeal has already been handled");
+            throw BizException.of(ErrorCode.CONFLICT, "该申诉已处理");
         }
 
         String action = request.getAction().trim().toLowerCase(Locale.ROOT);
         if (!"approve".equals(action) && !"reject".equals(action)) {
-            throw BizException.of(ErrorCode.PARAM_ERROR, "action must be approve or reject");
+            throw BizException.of(ErrorCode.PARAM_ERROR, "处理动作参数不合法");
         }
 
         QbAnswer answer = answerMapper.selectById(appeal.getAnswerId());
         if (answer == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "answer not found");
+            throw BizException.of(ErrorCode.NOT_FOUND, "答案不存在");
         }
         QbAttemptQuestion attemptQuestion = attemptQuestionMapper.selectById(answer.getAttemptQuestionId());
         if (attemptQuestion == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "attempt question not found");
+            throw BizException.of(ErrorCode.NOT_FOUND, "作答题目不存在");
         }
 
         LocalDateTime now = LocalDateTime.now();
@@ -128,7 +128,7 @@ public class AppealServiceImpl implements AppealService {
             if (request.getFinalScore() != null) {
                 int maxScore = safeInt(attemptQuestion.getScore());
                 if (request.getFinalScore() > maxScore) {
-                    throw BizException.of(ErrorCode.PARAM_ERROR, "finalScore cannot exceed max score: " + maxScore);
+                    throw BizException.of(ErrorCode.PARAM_ERROR, "最终分数不能超过满分 " + maxScore);
                 }
                 targetFinalScore = request.getFinalScore();
             }
@@ -142,7 +142,7 @@ public class AppealServiceImpl implements AppealService {
                 record.setAnswerId(answer.getId());
                 record.setGradingMode(GradingModeEnum.MANUAL.getCode());
                 record.setScore(targetFinalScore);
-                record.setDetailJson("{\"source\":\"appeal\"}");
+                record.setDetailJson("{\"\\u6765\\u6e90\":\"\\u7533\\u8bc9\\u5904\\u7406\"}");
                 record.setNeedsReview(0);
                 record.setReviewerId(handlerId);
                 record.setReviewComment(request.getDecisionComment());
@@ -192,7 +192,7 @@ public class AppealServiceImpl implements AppealService {
             return defaultPendingForTeacher ? AppealStatusEnum.PENDING.getCode() : null;
         }
         if (status < AppealStatusEnum.PENDING.getCode() || status > AppealStatusEnum.RESOLVED.getCode()) {
-            throw BizException.of(ErrorCode.PARAM_ERROR, "status must be between 1 and 4");
+            throw BizException.of(ErrorCode.PARAM_ERROR, "申诉状态必须在 1 到 4 之间");
         }
         return status;
     }
@@ -217,3 +217,4 @@ public class AppealServiceImpl implements AppealService {
         attemptMapper.updateAfterSubmit(attempt);
     }
 }
+

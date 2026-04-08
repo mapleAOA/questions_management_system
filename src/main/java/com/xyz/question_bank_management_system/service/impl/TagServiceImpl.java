@@ -83,7 +83,7 @@ public class TagServiceImpl implements TagService {
     @Transactional
     public Long create(TagCreateRequest request) {
         if (tagMapper.countByName(request.getTagName()) > 0) {
-            throw BizException.of(ErrorCode.CONFLICT, "标签名已存在");
+            throw BizException.of(ErrorCode.CONFLICT, "标签名称已存在");
         }
 
         Long parentId = normalizeParentId(request.getParentId());
@@ -111,7 +111,7 @@ public class TagServiceImpl implements TagService {
 
         Long parentId = normalizeParentId(request.getParentId());
         if (Objects.equals(parentId, id)) {
-            throw BizException.of(ErrorCode.PARAM_ERROR, "parentId不能等于自身id");
+            throw BizException.of(ErrorCode.PARAM_ERROR, "父标签不能等于自身编号");
         }
         if (parentId > 0) {
             ensureParentExists(parentId);

@@ -10,7 +10,12 @@ public interface LlmService {
     QbLlmCall chatCompletion(int bizType, long bizId, String prompt);
 
     /**
-     * 从 OpenAI-compatible 响应中抽取文本内容（choices[0].message.content）。
+     * bizType: 1=QUESTION_ANALYSIS,2=SUBJECTIVE_GRADING,3=OTHER
+     */
+    QbLlmCall chatCompletion(int bizType, long bizId, String prompt, String providerKey);
+
+    /**
+     * 从 OpenAI-compatible 响应中提取文本内容（choices[0].message.content）。
      */
     String extractContent(String responseText);
 }

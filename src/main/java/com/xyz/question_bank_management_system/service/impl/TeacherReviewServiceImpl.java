@@ -24,6 +24,7 @@ import com.xyz.question_bank_management_system.mapper.SysUserMapper;
 import com.xyz.question_bank_management_system.service.LlmService;
 import com.xyz.question_bank_management_system.service.TeacherReviewService;
 import com.xyz.question_bank_management_system.service.UserAbilityService;
+import com.xyz.question_bank_management_system.util.LlmPromptBuilder;
 import com.xyz.question_bank_management_system.util.PageParamUtil;
 import com.xyz.question_bank_management_system.vo.TeacherAnswerEvidenceVO;
 import com.xyz.question_bank_management_system.vo.TeacherAssignmentScoreItemVO;
@@ -68,11 +69,11 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
     public TeacherAnswerEvidenceVO evidence(Long answerId) {
         QbAnswer answer = answerMapper.selectById(answerId);
         if (answer == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "answer not found");
+            throw BizException.of(ErrorCode.NOT_FOUND, "\u7b54\u6848\u4e0d\u5b58\u5728");
         }
         QbAttemptQuestion aq = attemptQuestionMapper.selectById(answer.getAttemptQuestionId());
         if (aq == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "attempt question not found");
+            throw BizException.of(ErrorCode.NOT_FOUND, "\u4f5c\u7b54\u9898\u76ee\u4e0d\u5b58\u5728");
         }
 
         TeacherAnswerEvidenceVO vo = new TeacherAnswerEvidenceVO();
@@ -122,16 +123,16 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
     public void manualGrade(Long answerId, Integer score, String comment, Long reviewerId) {
         QbAnswer answer = answerMapper.selectById(answerId);
         if (answer == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "answer not found");
+            throw BizException.of(ErrorCode.NOT_FOUND, "\u7b54\u6848\u4e0d\u5b58\u5728");
         }
 
         QbAttemptQuestion aq = attemptQuestionMapper.selectById(answer.getAttemptQuestionId());
         if (aq == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "attempt question not found");
+            throw BizException.of(ErrorCode.NOT_FOUND, "\u4f5c\u7b54\u9898\u76ee\u4e0d\u5b58\u5728");
         }
         int maxScore = aq.getScore() == null ? 0 : aq.getScore();
         if (score == null || score < 0 || score > maxScore) {
-            throw BizException.of(ErrorCode.PARAM_ERROR, "score must be between 0 and " + maxScore);
+            throw BizException.of(ErrorCode.PARAM_ERROR, "\u5206\u6570\u8d85\u51fa\u5141\u8bb8\u8303\u56f4");
         }
 
         int previousScore = answer.getFinalScore() == null ? 0 : answer.getFinalScore();
@@ -141,7 +142,7 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
         record.setAnswerId(answerId);
         record.setGradingMode(3);
         record.setScore(safeScore);
-        record.setDetailJson("{\"source\":\"manual\"}");
+        record.setDetailJson("{\"\\u6765\\u6e90\":\"\\u4eba\\u5de5\\u8bc4\\u5206\"}");
         record.setNeedsReview(0);
         record.setReviewerId(reviewerId);
         record.setReviewComment(comment);
@@ -159,11 +160,11 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
     public List<Long> llmRetry(Long answerId, String modelName, Double temperature, Integer times) {
         QbAnswer answer = answerMapper.selectById(answerId);
         if (answer == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "answer not found");
+            throw BizException.of(ErrorCode.NOT_FOUND, "\u7b54\u6848\u4e0d\u5b58\u5728");
         }
         QbAttemptQuestion aq = attemptQuestionMapper.selectById(answer.getAttemptQuestionId());
         if (aq == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "attempt question not found");
+            throw BizException.of(ErrorCode.NOT_FOUND, "\u4f5c\u7b54\u9898\u76ee\u4e0d\u5b58\u5728");
         }
 
         int safeTimes = times == null ? 1 : Math.max(1, Math.min(5, times));
@@ -172,7 +173,7 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
         List<Long> llmCallIds = new ArrayList<>();
         boolean abilityNeedsRefresh = false;
         for (int i = 0; i < safeTimes; i++) {
-            QbLlmCall call = llmService.chatCompletion(2, answerId, prompt);
+            QbLlmCall call = llmService.chatCompletion(2, answerId, prompt, modelName);
             if (call != null && call.getId() != null) {
                 llmCallIds.add(call.getId());
             }
@@ -211,7 +212,7 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
     public PageResponse<TeacherAssignmentScoreItemVO> assignmentScores(Long assignmentId, long page, long size) {
         QbAssignment assignment = assignmentMapper.selectById(assignmentId);
         if (assignment == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "assignment not found");
+            throw BizException.of(ErrorCode.NOT_FOUND, "\u4f5c\u4e1a\u4e0d\u5b58\u5728");
         }
 
         long safePage = PageParamUtil.normalizePage(page);
@@ -237,18 +238,16 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
         } catch (Exception ignore) {
         }
         int maxScore = aq.getScore() == null ? 0 : aq.getScore();
-        String expectedModel = modelName == null ? "" : modelName.trim();
-        String expectedTemperature = temperature == null ? "" : String.valueOf(temperature);
-
-        return "You are a strict grading assistant. Return JSON only: {\"score\":number,\"confidence\":number,\"needsReview\":boolean,\"comment\":string}.\n"
-                + "maxScore=" + maxScore + "\n"
-                + "preferredModel=" + expectedModel + "\n"
-                + "preferredTemperature=" + expectedTemperature + "\n"
-                + "questionTitle=" + nullToEmpty(questionTitle) + "\n"
-                + "stem=" + nullToEmpty(stem) + "\n"
-                + "standardAnswer=" + nullToEmpty(standardAnswer) + "\n"
-                + "analysisText=" + nullToEmpty(analysisText) + "\n"
-                + "studentAnswer=" + nullToEmpty(answer.getAnswerContent()) + "\n";
+        return LlmPromptBuilder.buildSubjectiveGradingPrompt(
+                questionTitle,
+                stem,
+                standardAnswer,
+                analysisText,
+                answer.getAnswerContent(),
+                maxScore,
+                modelName,
+                temperature
+        );
     }
 
     private int applyScoreAndDelta(QbAnswer answer, QbAttemptQuestion aq, int score) {
@@ -295,22 +294,19 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
                 return null;
             }
             JsonNode json = parseJsonNode(content);
-            if (json == null || !json.isObject() || !json.has("score")) {
+            Integer score = readIntField(json, "\u5206\u6570", "score");
+            if (json == null || !json.isObject() || score == null) {
                 return null;
             }
             ParsedLlmGrade result = new ParsedLlmGrade();
-            result.score = json.get("score").asInt();
-            if (json.has("confidence") && !json.get("confidence").isNull()) {
-                result.confidence = json.get("confidence").asDouble();
-            }
-            result.needsReview = !json.has("needsReview") || json.get("needsReview").asBoolean(true);
+            result.score = score;
+            result.confidence = readDoubleField(json, "\u7f6e\u4fe1\u5ea6", "confidence");
+            result.needsReview = readBooleanField(json, "\u9700\u8981\u590d\u6838", "needsReview") != Boolean.FALSE;
             if (result.confidence != null && result.confidence < 0.55) {
                 result.needsReview = true;
             }
-            if (json.has("comment") && !json.get("comment").isNull()) {
-                result.comment = json.get("comment").asText();
-            }
-            result.detailJson = json.toString();
+            result.comment = readTextField(json, "\u8bc4\u8bed", "comment");
+            result.detailJson = buildLlmDetailJson(result.score, result.confidence, result.needsReview, result.comment);
             return result;
         } catch (Exception ignore) {
             return null;
@@ -353,8 +349,60 @@ public class TeacherReviewServiceImpl implements TeacherReviewService {
         }
     }
 
+    private Integer readIntField(JsonNode json, String... fieldNames) {
+        JsonNode node = findField(json, fieldNames);
+        return node == null ? null : node.asInt();
+    }
+
+    private Double readDoubleField(JsonNode json, String... fieldNames) {
+        JsonNode node = findField(json, fieldNames);
+        return node == null ? null : node.asDouble();
+    }
+
+    private Boolean readBooleanField(JsonNode json, String... fieldNames) {
+        JsonNode node = findField(json, fieldNames);
+        return node == null ? null : node.asBoolean();
+    }
+
+    private String readTextField(JsonNode json, String... fieldNames) {
+        JsonNode node = findField(json, fieldNames);
+        return node == null ? null : node.asText();
+    }
+
+    private JsonNode findField(JsonNode json, String... fieldNames) {
+        if (json == null || fieldNames == null) {
+            return null;
+        }
+        for (String fieldName : fieldNames) {
+            if (fieldName == null || fieldName.isBlank() || !json.has(fieldName)) {
+                continue;
+            }
+            JsonNode node = json.get(fieldName);
+            if (node != null && !node.isNull()) {
+                return node;
+            }
+        }
+        return null;
+    }
+
     private String nullToEmpty(String value) {
         return value == null ? "" : value;
+    }
+
+    private String safeJson(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    private String buildLlmDetailJson(Integer score, Double confidence, boolean needsReview, String comment) {
+        String safeScore = score == null ? "null" : String.valueOf(score);
+        String safeConfidence = confidence == null ? "null" : String.valueOf(confidence);
+        return "{\"\\u5206\\u6570\":" + safeScore
+                + ",\"\\u7f6e\\u4fe1\\u5ea6\":" + safeConfidence
+                + ",\"\\u9700\\u8981\\u590d\\u6838\":" + needsReview
+                + ",\"\\u8bc4\\u8bed\":\"" + safeJson(comment) + "\"}";
     }
 
     private static class ParsedLlmGrade {

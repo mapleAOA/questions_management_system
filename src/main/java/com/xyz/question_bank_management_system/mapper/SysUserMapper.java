@@ -1,6 +1,7 @@
 package com.xyz.question_bank_management_system.mapper;
 
 import com.xyz.question_bank_management_system.entity.SysUser;
+import com.xyz.question_bank_management_system.vo.TeacherOptionVO;
 import org.apache.ibatis.annotations.*;
 
 import java.time.LocalDateTime;
@@ -35,4 +36,12 @@ public interface SysUserMapper {
 
     @Select("SELECT COUNT(1) FROM sys_user WHERE is_deleted=0")
     long countAll();
+
+    @Select("SELECT u.id, u.username, u.display_name " +
+            "FROM sys_user u " +
+            "JOIN sys_user_role ur ON ur.user_id=u.id " +
+            "JOIN sys_role r ON r.id=ur.role_id " +
+            "WHERE u.is_deleted=0 AND u.status=1 AND r.role_code='TEACHER' " +
+            "ORDER BY u.display_name ASC, u.id ASC")
+    List<TeacherOptionVO> listTeacherOptions();
 }

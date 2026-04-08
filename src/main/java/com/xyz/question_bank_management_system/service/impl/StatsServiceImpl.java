@@ -48,7 +48,7 @@ public class StatsServiceImpl implements StatsService {
     public void resolveWrongQuestion(Long userId, Long questionId) {
         int updated = wrongQuestionMapper.resolve(userId, questionId, LocalDateTime.now());
         if (updated <= 0) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "wrong question record not found");
+            throw BizException.of(ErrorCode.NOT_FOUND, "错题记录不存在");
         }
     }
 
@@ -67,7 +67,7 @@ public class StatsServiceImpl implements StatsService {
     public List<QbTagMastery> mastery(Long userId, Integer tagType) {
         int safeTagType = tagType == null ? 1 : tagType;
         if (safeTagType < 1 || safeTagType > 3) {
-            throw BizException.of(ErrorCode.PARAM_ERROR, "tagType must be 1, 2 or 3");
+            throw BizException.of(ErrorCode.PARAM_ERROR, "标签类型必须是 1、2 或 3");
         }
         return tagMasteryMapper.selectByUserIdAndTagType(userId, safeTagType);
     }

@@ -8,15 +8,17 @@ import com.xyz.question_bank_management_system.util.SecurityContextUtil;
 import com.xyz.question_bank_management_system.vo.ClassStudentItemVO;
 import com.xyz.question_bank_management_system.vo.StudentClassItemVO;
 import com.xyz.question_bank_management_system.vo.TeacherClassItemVO;
+import com.xyz.question_bank_management_system.vo.TeacherOptionVO;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -35,14 +37,40 @@ public class ClassController {
     @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     public ApiResponse<Long> create(@RequestBody @Valid ClassCreateRequest request) {
         Long uid = SecurityContextUtil.getUserId();
-        return ApiResponse.ok(classService.create(request, uid));
+        boolean isAdmin = hasRole("ROLE_ADMIN");
+        return ApiResponse.ok(classService.create(request, uid, isAdmin));
+    }
+
+    @PutMapping("/{classId}")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
+    public ApiResponse<Void> update(@PathVariable Long classId, @RequestBody @Valid ClassCreateRequest request) {
+        Long uid = SecurityContextUtil.getUserId();
+        boolean isAdmin = hasRole("ROLE_ADMIN");
+        classService.update(classId, request, uid, isAdmin);
+        return ApiResponse.ok();
+    }
+
+    @DeleteMapping("/{classId}")
+    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
+    public ApiResponse<Void> delete(@PathVariable Long classId) {
+        Long uid = SecurityContextUtil.getUserId();
+        boolean isAdmin = hasRole("ROLE_ADMIN");
+        classService.delete(classId, uid, isAdmin);
+        return ApiResponse.ok();
     }
 
     @GetMapping("/mine")
     @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
     public ApiResponse<List<TeacherClassItemVO>> mine() {
         Long uid = SecurityContextUtil.getUserId();
-        return ApiResponse.ok(classService.listMine(uid));
+        boolean isAdmin = hasRole("ROLE_ADMIN");
+        return ApiResponse.ok(classService.listManageable(uid, isAdmin));
+    }
+
+    @GetMapping("/teachers")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<List<TeacherOptionVO>> teacherOptions() {
+        return ApiResponse.ok(classService.listTeacherOptions());
     }
 
     @GetMapping("/{classId}/students")
@@ -83,3 +111,4 @@ public class ClassController {
                 .anyMatch(a -> a.equals(role));
     }
 }
+

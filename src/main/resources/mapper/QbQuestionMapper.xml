@@ -22,25 +22,14 @@
             <if test="q.status != null">
                 AND q.status = #{q.status}
             </if>
+            <if test="q.bankReviewStatus != null">
+                AND q.bank_review_status = #{q.bankReviewStatus}
+            </if>
             <if test="q.createdBy != null">
                 AND q.created_by = #{q.createdBy}
             </if>
             <if test="q.studentScope != null and q.studentScope">
-                AND (
-                    EXISTS (
-                        SELECT 1
-                        FROM sys_user_role ur
-                        JOIN sys_role r ON r.id = ur.role_id
-                        WHERE ur.user_id = q.created_by
-                          AND r.role_code = 'ADMIN'
-                    )
-                    <if test="q.visibleTeacherIds != null and q.visibleTeacherIds.size > 0">
-                        OR q.created_by IN
-                        <foreach collection="q.visibleTeacherIds" item="tid" open="(" close=")" separator=",">
-                            #{tid}
-                        </foreach>
-                    </if>
-                )
+                AND q.bank_review_status = 2
             </if>
             <if test="q.teacherScope != null and q.teacherScope">
                 <choose>
@@ -48,24 +37,13 @@
                         AND q.created_by = #{q.viewerId}
                     </when>
                     <when test='q.sourceType != null and q.sourceType.equals("bank")'>
-                        AND EXISTS (
-                            SELECT 1
-                            FROM sys_user_role ur
-                            JOIN sys_role r ON r.id = ur.role_id
-                            WHERE ur.user_id = q.created_by
-                              AND r.role_code = 'ADMIN'
-                        )
+                        AND q.status = 2
+                        AND q.bank_review_status = 2
                     </when>
                     <otherwise>
                         AND (
                             q.created_by = #{q.viewerId}
-                            OR EXISTS (
-                                SELECT 1
-                                FROM sys_user_role ur
-                                JOIN sys_role r ON r.id = ur.role_id
-                                WHERE ur.user_id = q.created_by
-                                  AND r.role_code = 'ADMIN'
-                            )
+                            OR (q.status = 2 AND q.bank_review_status = 2)
                         )
                     </otherwise>
                 </choose>
@@ -132,21 +110,7 @@
                     </foreach>
               )
           </if>
-          AND (
-              EXISTS (
-                  SELECT 1
-                  FROM sys_user_role ur
-                  JOIN sys_role r ON r.id = ur.role_id
-                  WHERE ur.user_id = q.created_by
-                    AND r.role_code = 'ADMIN'
-              )
-              <if test="visibleTeacherIds != null and visibleTeacherIds.size > 0">
-                  OR q.created_by IN
-                  <foreach collection="visibleTeacherIds" item="tid" open="(" close=")" separator=",">
-                      #{tid}
-                  </foreach>
-              </if>
-          )
+          AND q.bank_review_status = 2
         ORDER BY q.updated_at DESC, q.id DESC
         LIMIT #{limit}
     </select>
@@ -161,21 +125,7 @@
           <foreach collection="questionIds" item="qid" open="(" close=")" separator=",">
               #{qid}
           </foreach>
-          AND (
-              EXISTS (
-                  SELECT 1
-                  FROM sys_user_role ur
-                  JOIN sys_role r ON r.id = ur.role_id
-                  WHERE ur.user_id = q.created_by
-                    AND r.role_code = 'ADMIN'
-              )
-              <if test="visibleTeacherIds != null and visibleTeacherIds.size > 0">
-                  OR q.created_by IN
-                  <foreach collection="visibleTeacherIds" item="tid" open="(" close=")" separator=",">
-                      #{tid}
-                  </foreach>
-              </if>
-          )
+          AND q.bank_review_status = 2
     </select>
 
 </mapper>

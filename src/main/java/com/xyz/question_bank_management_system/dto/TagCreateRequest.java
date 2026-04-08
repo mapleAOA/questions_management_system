@@ -12,7 +12,7 @@ public class TagCreateRequest {
     private Long parentId;
     private Integer tagLevel;
     /** 1=knowledge,2=chapter,3=custom */
-    @NotNull(message = "tagType不能为空")
+    @NotNull(message = "标签类型不能为空")
     private Integer tagType;
     private Integer sortOrder;
 }

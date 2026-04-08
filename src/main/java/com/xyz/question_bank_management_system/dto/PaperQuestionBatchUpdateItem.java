@@ -6,14 +6,14 @@ import lombok.Data;
 
 @Data
 public class PaperQuestionBatchUpdateItem {
-    @NotNull(message = "paperQuestionId不能为空")
+    @NotNull(message = "试卷题目编号不能为空")
     private Long id;
 
-    @NotNull(message = "orderNo不能为空")
-    @Min(value = 1, message = "orderNo必须大于等于1")
+    @NotNull(message = "题目顺序不能为空")
+    @Min(value = 1, message = "题目顺序必须大于等于 1")
     private Integer orderNo;
 
-    @NotNull(message = "score不能为空")
-    @Min(value = 0, message = "score必须大于等于0")
+    @NotNull(message = "题目分值不能为空")
+    @Min(value = 0, message = "题目分值必须大于等于 0")
     private Integer score;
 }

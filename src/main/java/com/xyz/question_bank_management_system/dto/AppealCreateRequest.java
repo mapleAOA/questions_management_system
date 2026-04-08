@@ -9,10 +9,10 @@ import java.util.List;
 @Data
 public class AppealCreateRequest {
 
-    @NotNull(message = "answerId cannot be null")
+    @NotNull(message = "答案编号不能为空")
     private Long answerId;
 
-    @NotBlank(message = "reasonText cannot be blank")
+    @NotBlank(message = "申诉原因不能为空")
     private String reasonText;
 
     private List<String> attachments;

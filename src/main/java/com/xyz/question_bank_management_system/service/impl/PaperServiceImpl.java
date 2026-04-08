@@ -20,7 +20,7 @@ import com.xyz.question_bank_management_system.mapper.QbQuestionCaseMapper;
 import com.xyz.question_bank_management_system.mapper.QbQuestionMapper;
 import com.xyz.question_bank_management_system.mapper.QbQuestionOptionMapper;
 import com.xyz.question_bank_management_system.mapper.QbQuestionTagMapper;
-import com.xyz.question_bank_management_system.mapper.SysRoleMapper;
+import com.xyz.question_bank_management_system.service.AuditLogService;
 import com.xyz.question_bank_management_system.service.PaperService;
 import com.xyz.question_bank_management_system.util.HashUtil;
 import com.xyz.question_bank_management_system.util.PageParamUtil;
@@ -49,7 +49,7 @@ public class PaperServiceImpl implements PaperService {
     private final QbQuestionOptionMapper optionMapper;
     private final QbQuestionCaseMapper caseMapper;
     private final QbQuestionTagMapper questionTagMapper;
-    private final SysRoleMapper roleMapper;
+    private final AuditLogService auditLogService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -60,29 +60,31 @@ public class PaperServiceImpl implements PaperService {
         p.setPaperTitle(request.getPaperTitle());
         p.setPaperDesc(request.getPaperDesc());
         p.setPaperType(request.getPaperType());
-        p.setStatus(request.getStatus());
         p.setTotalScore(0);
         p.setCreatorId(creatorId);
         paperMapper.insert(p);
+        recordAudit(creatorId, "PAPER_CREATE", "PAPER", p.getId(), null, paperAuditSnapshot(p));
         return p.getId();
     }
 
     @Override
     public void update(Long paperId, PaperUpsertRequest request, Long actorId, boolean isAdmin) {
         QbPaper p = loadPaperForManage(paperId, actorId, isAdmin);
+        Map<String, Object> before = paperAuditSnapshot(p);
         p.setPaperTitle(request.getPaperTitle());
         p.setPaperDesc(request.getPaperDesc());
         p.setPaperType(request.getPaperType());
-        p.setStatus(request.getStatus());
         paperMapper.update(p);
+        recordAudit(actorId, "PAPER_UPDATE", "PAPER", paperId, before, paperAuditSnapshot(p));
     }
 
     @Override
     @Transactional
     public void delete(Long paperId, Long actorId, boolean isAdmin) {
-        loadPaperForManage(paperId, actorId, isAdmin);
+        QbPaper paper = loadPaperForManage(paperId, actorId, isAdmin);
         paperMapper.softDelete(paperId);
         paperQuestionMapper.deleteByPaperId(paperId);
+        recordAudit(actorId, "PAPER_DELETE", "PAPER", paperId, paperAuditSnapshot(paper), null);
     }
 
     @Override
@@ -113,7 +115,6 @@ public class PaperServiceImpl implements PaperService {
         vo.setPaperDesc(p.getPaperDesc());
         vo.setPaperType(p.getPaperType());
         vo.setTotalScore(p.getTotalScore());
-        vo.setStatus(p.getStatus());
         vo.setCreatorId(p.getCreatorId());
         vo.setCreatedAt(p.getCreatedAt());
         vo.setUpdatedAt(p.getUpdatedAt());
@@ -141,10 +142,10 @@ public class PaperServiceImpl implements PaperService {
 
         QbQuestion q = questionMapper.selectById(request.getQuestionId());
         if (q == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "question not found");
+            throw BizException.of(ErrorCode.NOT_FOUND, "题目不存在");
         }
         if (!isAdmin && !canTeacherUseQuestion(q, actorId)) {
-            throw BizException.of(ErrorCode.FORBIDDEN, "no permission to use this question");
+            throw BizException.of(ErrorCode.FORBIDDEN, "无权使用该题目");
         }
 
         String snapshotJson = buildQuestionSnapshot(q.getId());
@@ -160,10 +161,16 @@ public class PaperServiceImpl implements PaperService {
         try {
             paperQuestionMapper.insert(pq);
         } catch (DuplicateKeyException e) {
-            throw BizException.of(ErrorCode.CONFLICT, "paper already has a question at this order");
+            throw BizException.of(ErrorCode.CONFLICT, "该排序位置已存在试题");
         }
 
-        recalculateTotalScore(paperId, actorId, isAdmin);
+        refreshTotalScore(paperId);
+        recordAudit(actorId,
+                "PAPER_ADD_QUESTION",
+                "PAPER",
+                paperId,
+                null,
+                paperQuestionAuditSnapshot(pq));
         return pq.getId();
     }
 
@@ -175,10 +182,10 @@ public class PaperServiceImpl implements PaperService {
         List<QbPaperQuestion> existingQuestions = paperQuestionMapper.selectByPaperId(paperId);
         List<PaperQuestionBatchUpdateItem> items = request.getQuestions();
         if (items == null || items.isEmpty()) {
-            throw BizException.of(ErrorCode.PARAM_ERROR, "questions cannot be empty");
+            throw BizException.of(ErrorCode.PARAM_ERROR, "试卷题目不能为空");
         }
         if (items.size() != existingQuestions.size()) {
-            throw BizException.of(ErrorCode.PARAM_ERROR, "all paper questions must be included");
+            throw BizException.of(ErrorCode.PARAM_ERROR, "必须包含试卷中的全部题目");
         }
 
         Map<Long, QbPaperQuestion> existingById = new HashMap<>();
@@ -191,16 +198,16 @@ public class PaperServiceImpl implements PaperService {
         int itemCount = items.size();
         for (PaperQuestionBatchUpdateItem item : items) {
             if (!seenIds.add(item.getId())) {
-                throw BizException.of(ErrorCode.PARAM_ERROR, "duplicate paper question id");
+                throw BizException.of(ErrorCode.PARAM_ERROR, "试卷题目编号不能重复");
             }
             if (item.getOrderNo() == null || item.getOrderNo() < 1 || item.getOrderNo() > itemCount) {
-                throw BizException.of(ErrorCode.PARAM_ERROR, "orderNo out of range");
+                throw BizException.of(ErrorCode.PARAM_ERROR, "题目顺序超出允许范围");
             }
             if (!seenOrderNos.add(item.getOrderNo())) {
-                throw BizException.of(ErrorCode.PARAM_ERROR, "duplicate orderNo");
+                throw BizException.of(ErrorCode.PARAM_ERROR, "题目顺序不能重复");
             }
             if (!existingById.containsKey(item.getId())) {
-                throw BizException.of(ErrorCode.NOT_FOUND, "paper question not found");
+                throw BizException.of(ErrorCode.NOT_FOUND, "试卷题目不存在");
             }
         }
 
@@ -225,46 +232,63 @@ public class PaperServiceImpl implements PaperService {
             try {
                 paperQuestionMapper.update(question);
             } catch (DuplicateKeyException e) {
-                throw BizException.of(ErrorCode.CONFLICT, "paper already has a question at this order");
+                throw BizException.of(ErrorCode.CONFLICT, "该排序位置已存在试题");
             }
         }
 
-        recalculateTotalScore(paperId, actorId, isAdmin);
+        refreshTotalScore(paperId);
+        recordAudit(actorId,
+                "PAPER_BATCH_UPDATE",
+                "PAPER",
+                paperId,
+                null,
+                Map.of("questionCount", items.size(), "questions", items));
     }
 
     @Override
     public void updatePaperQuestion(Long paperQuestionId, PaperQuestionUpdateRequest request, Long actorId, boolean isAdmin) {
         QbPaperQuestion pq = paperQuestionMapper.selectById(paperQuestionId);
         if (pq == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "paper question not found");
+            throw BizException.of(ErrorCode.NOT_FOUND, "试卷题目不存在");
         }
         loadPaperForManage(pq.getPaperId(), actorId, isAdmin);
+        Map<String, Object> before = paperQuestionAuditSnapshot(pq);
 
         pq.setOrderNo(request.getOrderNo());
         pq.setScore(request.getScore());
         try {
             paperQuestionMapper.update(pq);
         } catch (DuplicateKeyException e) {
-            throw BizException.of(ErrorCode.CONFLICT, "paper already has a question at this order");
+            throw BizException.of(ErrorCode.CONFLICT, "该排序位置已存在试题");
         }
-        recalculateTotalScore(pq.getPaperId(), actorId, isAdmin);
+        refreshTotalScore(pq.getPaperId());
+        recordAudit(actorId,
+                "PAPER_UPDATE_QUESTION",
+                "PAPER",
+                pq.getPaperId(),
+                before,
+                paperQuestionAuditSnapshot(pq));
     }
 
     @Override
     public void removePaperQuestion(Long paperQuestionId, Long actorId, boolean isAdmin) {
         QbPaperQuestion pq = paperQuestionMapper.selectById(paperQuestionId);
         if (pq == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "paper question not found");
+            throw BizException.of(ErrorCode.NOT_FOUND, "试卷题目不存在");
         }
         loadPaperForManage(pq.getPaperId(), actorId, isAdmin);
+        Map<String, Object> before = paperQuestionAuditSnapshot(pq);
 
         paperQuestionMapper.deleteById(paperQuestionId);
-        recalculateTotalScore(pq.getPaperId(), actorId, isAdmin);
+        refreshTotalScore(pq.getPaperId());
+        recordAudit(actorId, "PAPER_REMOVE_QUESTION", "PAPER", pq.getPaperId(), before, null);
     }
 
-    @Override
-    public void recalculateTotalScore(Long paperId, Long actorId, boolean isAdmin) {
-        QbPaper p = loadPaperForManage(paperId, actorId, isAdmin);
+    private void refreshTotalScore(Long paperId) {
+        QbPaper p = paperMapper.selectById(paperId);
+        if (p == null) {
+            throw BizException.of(ErrorCode.NOT_FOUND, "试卷不存在");
+        }
         int total = paperQuestionMapper.sumScoreByPaperId(paperId);
         p.setTotalScore(total);
         paperMapper.update(p);
@@ -273,10 +297,10 @@ public class PaperServiceImpl implements PaperService {
     private QbPaper loadPaperForManage(Long paperId, Long actorId, boolean isAdmin) {
         QbPaper p = paperMapper.selectById(paperId);
         if (p == null) {
-            throw BizException.of(ErrorCode.NOT_FOUND, "paper not found");
+            throw BizException.of(ErrorCode.NOT_FOUND, "试卷不存在");
         }
         if (!isAdmin && !Objects.equals(p.getCreatorId(), actorId)) {
-            throw BizException.of(ErrorCode.FORBIDDEN, "no permission to manage this paper");
+            throw BizException.of(ErrorCode.FORBIDDEN, "无权管理该试卷");
         }
         return p;
     }
@@ -285,11 +309,10 @@ public class PaperServiceImpl implements PaperService {
         if (Objects.equals(q.getCreatedBy(), teacherId)) {
             return true;
         }
-        if (q.getCreatedBy() == null || q.getStatus() == null || q.getStatus() != 2) {
+        if (q.getStatus() == null || q.getStatus() != 2) {
             return false;
         }
-        String role = roleMapper.selectRoleCodeByUserId(q.getCreatedBy());
-        return "ADMIN".equalsIgnoreCase(role);
+        return q.getBankReviewStatus() != null && q.getBankReviewStatus() == 2;
     }
 
     private String buildQuestionSnapshot(Long questionId) {
@@ -317,5 +340,37 @@ public class PaperServiceImpl implements PaperService {
         } catch (Exception e) {
             throw new BizException(ErrorCode.BIZ_ERROR, "failed to build question snapshot: " + e.getMessage());
         }
+    }
+
+    private Map<String, Object> paperAuditSnapshot(QbPaper paper) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("id", paper.getId());
+        snapshot.put("paperTitle", paper.getPaperTitle());
+        snapshot.put("paperDesc", paper.getPaperDesc());
+        snapshot.put("paperType", paper.getPaperType());
+        snapshot.put("totalScore", paper.getTotalScore());
+        snapshot.put("creatorId", paper.getCreatorId());
+        return snapshot;
+    }
+
+    private Map<String, Object> paperQuestionAuditSnapshot(QbPaperQuestion paperQuestion) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("paperQuestionId", paperQuestion.getId());
+        snapshot.put("questionId", paperQuestion.getQuestionId());
+        snapshot.put("orderNo", paperQuestion.getOrderNo());
+        snapshot.put("score", paperQuestion.getScore());
+        return snapshot;
+    }
+
+    private void recordAudit(Long userId,
+                             String action,
+                             String entityType,
+                             Long entityId,
+                             Object beforeData,
+                             Object afterData) {
+        if (auditLogService == null) {
+            return;
+        }
+        auditLogService.record(userId, action, entityType, entityId, beforeData, afterData);
     }
 }

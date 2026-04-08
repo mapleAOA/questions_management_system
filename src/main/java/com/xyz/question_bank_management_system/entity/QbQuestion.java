@@ -23,6 +23,11 @@ public class QbQuestion {
     private Long analysisLlmCallId;
     /** 1=draft,2=published,3=archived */
     private Integer status;
+    /** 0=private,1=pending,2=approved,3=rejected */
+    private Integer bankReviewStatus;
+    private Long bankReviewerId;
+    private LocalDateTime bankReviewedAt;
+    private String bankReviewComment;
     private Long createdBy;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

@@ -9,6 +9,6 @@ import java.util.List;
 @Data
 public class PaperQuestionBatchUpdateRequest {
     @Valid
-    @NotEmpty(message = "questions不能为空")
+    @NotEmpty(message = "试卷题目列表不能为空")
     private List<PaperQuestionBatchUpdateItem> questions;
 }

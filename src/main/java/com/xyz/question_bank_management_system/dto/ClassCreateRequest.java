@@ -5,8 +5,12 @@ import lombok.Data;
 
 @Data
 public class ClassCreateRequest {
-    @NotBlank(message = "className cannot be empty")
+    @NotBlank(message = "班级名称不能为空")
     private String className;
 
     private String classDesc;
+
+    private String classCode;
+
+    private Long teacherId;
 }

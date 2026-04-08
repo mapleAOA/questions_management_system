@@ -12,7 +12,6 @@ public class PaperDetailVO {
     private String paperDesc;
     private Integer paperType;
     private Integer totalScore;
-    private Integer status;
     private Long creatorId;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

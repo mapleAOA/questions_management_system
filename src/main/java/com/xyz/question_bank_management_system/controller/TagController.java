@@ -33,20 +33,20 @@ public class TagController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<Long> create(@RequestBody @Valid TagCreateRequest request) {
         return ApiResponse.ok(tagService.create(request));
     }
 
     @PutMapping("/{tagId}")
-    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<Void> update(@PathVariable Long tagId, @RequestBody @Valid TagUpdateRequest request) {
         tagService.update(tagId, request);
         return ApiResponse.ok();
     }
 
     @DeleteMapping("/{tagId}")
-    @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<Void> delete(@PathVariable Long tagId) {
         tagService.delete(tagId);
         return ApiResponse.ok();

@@ -2,8 +2,10 @@ package com.xyz.question_bank_management_system.controller;
 
 import com.xyz.question_bank_management_system.common.ApiResponse;
 import com.xyz.question_bank_management_system.common.PageResponse;
-import com.xyz.question_bank_management_system.common.enums.QuestionTypeEnum;
 import com.xyz.question_bank_management_system.common.enums.QuestionStatusEnum;
+import com.xyz.question_bank_management_system.common.enums.QuestionTypeEnum;
+import com.xyz.question_bank_management_system.dto.QuestionBankReviewRequest;
+import com.xyz.question_bank_management_system.dto.QuestionLlmAnalysisRequest;
 import com.xyz.question_bank_management_system.dto.QuestionSearchQuery;
 import com.xyz.question_bank_management_system.dto.QuestionUpsertRequest;
 import com.xyz.question_bank_management_system.exception.BizException;
@@ -12,13 +14,22 @@ import com.xyz.question_bank_management_system.mapper.QbClassMemberMapper;
 import com.xyz.question_bank_management_system.service.QuestionService;
 import com.xyz.question_bank_management_system.util.SecurityContextUtil;
 import com.xyz.question_bank_management_system.vo.QuestionDetailVO;
+import com.xyz.question_bank_management_system.vo.QuestionLlmBatchResultVO;
 import com.xyz.question_bank_management_system.vo.QuestionListItemVO;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Arrays;
 import java.util.List;
@@ -73,6 +84,7 @@ public class QuestionController {
             @RequestParam(required = false) Integer difficulty,
             @RequestParam(required = false) Integer questionType,
             @RequestParam(required = false) Integer status,
+            @RequestParam(required = false) Integer bankReviewStatus,
             @RequestParam(required = false) Long tagId,
             @RequestParam(required = false) String tagIds,
             @RequestParam(required = false, defaultValue = "all") String source,
@@ -86,6 +98,7 @@ public class QuestionController {
         q.setDifficulty(difficulty);
         q.setQuestionType(normalizeEnabledQuestionType(questionType));
         q.setStatus(status);
+        q.setBankReviewStatus(bankReviewStatus);
         q.setTagId(tagId);
         if (tagIds != null && !tagIds.isBlank()) {
             try {
@@ -96,7 +109,7 @@ public class QuestionController {
                         .collect(Collectors.toList());
                 q.setTagIds(ids);
             } catch (NumberFormatException e) {
-                throw BizException.of(ErrorCode.PARAM_ERROR, "tagIds must be comma-separated numbers");
+                throw BizException.of(ErrorCode.PARAM_ERROR, "标签编号必须使用逗号分隔的数字");
             }
         }
         Long uid = SecurityContextUtil.getUserId();
@@ -126,12 +139,39 @@ public class QuestionController {
         return ApiResponse.ok();
     }
 
+    @PostMapping("/{questionId}/bank-review/submit")
+    @PreAuthorize("hasRole('TEACHER')")
+    public ApiResponse<Void> submitBankReview(@PathVariable Long questionId) {
+        Long uid = SecurityContextUtil.getUserId();
+        questionService.submitForBankReview(questionId, uid);
+        return ApiResponse.ok();
+    }
+
+    @PostMapping("/{questionId}/bank-review/cancel")
+    @PreAuthorize("hasRole('TEACHER')")
+    public ApiResponse<Void> cancelBankReview(@PathVariable Long questionId) {
+        Long uid = SecurityContextUtil.getUserId();
+        questionService.cancelBankReview(questionId, uid);
+        return ApiResponse.ok();
+    }
+
+    @PostMapping("/{questionId}/bank-review")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<Void> reviewBankQuestion(@PathVariable Long questionId,
+                                                @RequestBody @Valid QuestionBankReviewRequest request) {
+        Long uid = SecurityContextUtil.getUserId();
+        questionService.reviewBankQuestion(questionId, request, uid);
+        return ApiResponse.ok();
+    }
+
     @PostMapping("/{questionId}/analysis/llm")
     @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
-    public ApiResponse<Long> llmAnalysis(@PathVariable Long questionId) {
+    public ApiResponse<QuestionLlmBatchResultVO> llmAnalysis(@PathVariable Long questionId,
+                                                             @RequestBody(required = false) QuestionLlmAnalysisRequest request) {
         Long uid = SecurityContextUtil.getUserId();
         boolean isAdmin = hasRole("ROLE_ADMIN");
-        return ApiResponse.ok(questionService.generateAnalysisByLlm(questionId, uid, isAdmin));
+        String providerKey = request == null ? null : request.getProviderKey();
+        return ApiResponse.ok(questionService.generateAnalysisByLlm(questionId, providerKey, uid, isAdmin));
     }
 
     private boolean hasAnyRole(String... roles) {
@@ -152,7 +192,7 @@ public class QuestionController {
         if ("all".equals(normalized) || "mine".equals(normalized) || "bank".equals(normalized)) {
             return normalized;
         }
-        throw BizException.of(ErrorCode.PARAM_ERROR, "source must be one of: all, mine, bank");
+        throw BizException.of(ErrorCode.PARAM_ERROR, "题目来源参数不合法");
     }
 
     private Integer normalizeEnabledQuestionType(Integer questionType) {
@@ -161,8 +201,9 @@ public class QuestionController {
         }
         QuestionTypeEnum type = QuestionTypeEnum.of(questionType);
         if (type == null || !type.isEnabledNow()) {
-            throw BizException.of(ErrorCode.PARAM_ERROR, "questionType is disabled or invalid: " + questionType);
+            throw BizException.of(ErrorCode.PARAM_ERROR, "题型不可用或参数无效: " + questionType);
         }
         return questionType;
     }
 }
+

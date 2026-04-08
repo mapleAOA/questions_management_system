@@ -11,6 +11,7 @@ public class QuestionSearchQuery {
     private Integer difficulty;
     private Integer questionType;
     private Integer status;
+    private Integer bankReviewStatus;
     /** single tag filter */
     private Long tagId;
     /** multi-tag OR filter */
